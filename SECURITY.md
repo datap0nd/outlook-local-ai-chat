@@ -3,22 +3,26 @@
 ## Security objective
 
 Untrusted email content, user prompts, conversation history, and model responses
-must never become executable Outlook actions. The only mailbox mutation this
+must never reach an Outlook send or source-message mutation capability. Model
+tool calls may select bounded read-only mailbox context. The only mutation this
 add-in permits is creating an unsent draft after a direct user click.
 
 ## Capability separation
 
 ```text
-Selected MailItem
+Prompt + optional selected-message metadata
     |
     v
-MessageReader -> immutable, bounded MessageSnapshot
+OpenAiCompatibleClient -> messages + read-only tool schema -> endpoint
     |
     v
-OpenAiCompatibleClient -> plain JSON messages -> configured endpoint
+allowlisted tool call -> MailboxToolHost -> bounded local Outlook reads
     |
     v
-bounded plain-text response -> chat window
+temporary handles + bounded untrusted text -> endpoint
+    |
+    v
+bounded plain-text response -> Outlook custom task pane
 
 User clicks draft button
     |
@@ -32,20 +36,28 @@ handlers.
 
 ## Enforced invariants
 
-1. The model request schema has no `tools`, `tool_choice`, `function_call`, or
-   arbitrary extension properties.
-2. The model response is parsed into a typed text-only response object.
-3. Response text is stripped of control characters and truncated before display
+1. The model request schema exposes exactly `search_mailbox`, `read_messages`,
+   and `read_thread`.
+2. `MailboxToolHost` has one public dispatcher and rejects any tool name outside
+   that compile-time allowlist.
+3. Model-selected searches are limited to the primary Inbox and Sent Items.
+   Results, body lengths, thread lengths, calls per round, and tool rounds are
+   capped.
+4. Search results receive temporary handles. Read operations accept only handles
+   issued within the current request, plus the optional `selected` handle.
+5. The mailbox host has no reference to `DraftService`, and the endpoint client
+   has no Outlook application object.
+6. Response text is stripped of control characters and truncated before display
    or drafting.
-4. A `RichTextBox` displays the response as literal text. No browser or HTML
+7. A `RichTextBox` displays the response as literal text. No browser or HTML
    renderer is used.
-5. `DraftService` has exactly two public operations:
+8. `DraftService` has exactly two public operations:
    `CreateReplyDraft` and `CreateNewDraft`.
-6. Draft operations call Outlook save and display behavior only.
-7. Source scans fail on Outlook send, delete, move, Outbox, or send/receive
+9. Draft operations call Outlook save and display behavior only.
+10. Source scans fail on Outlook send, delete, move, Outbox, or send/receive
    capabilities.
-8. Conversation history is held in memory and cleared when the selected message
-   changes or the chat closes.
+11. Conversation history is held in memory and cleared by **New chat** or Outlook
+    shutdown.
 
 The system prompt reinforces these limits, but no security property depends on
 the model obeying it.
@@ -68,8 +80,9 @@ Loopback HTTP is permitted for local model servers.
 
 ## Logging
 
-The diagnostic log records UTC time, operation name, and exception type only. It
-does not record email content, prompts, responses, endpoints, or API keys.
+The diagnostic log records UTC time, operation name, exception type, diagnostic
+code, and HRESULT category. It does not record email content, prompts, provider
+response bodies, endpoints, request IDs, or API keys.
 
 ## Installation trust
 

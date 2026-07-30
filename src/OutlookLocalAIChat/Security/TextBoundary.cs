@@ -9,6 +9,9 @@ namespace OutlookLocalAIChat.Security
         public const int MaxUserPromptCharacters = 4000;
         public const int MaxAssistantCharacters = 12000;
         public const int MaxConversationTurns = 12;
+        public const int MaxToolResultCharacters = 48000;
+        public const int MaxToolRounds = 4;
+        public const int MaxToolCallsPerRound = 4;
         public const int MaxHttpResponseCharacters = 1048576;
 
         public static string PlainText(string value, int maximumLength)

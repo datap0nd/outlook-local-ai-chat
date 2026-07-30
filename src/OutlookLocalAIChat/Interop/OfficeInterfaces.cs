@@ -67,4 +67,17 @@ namespace OutlookLocalAIChat.Interop
         string GetCustomUI(
             [In, MarshalAs(UnmanagedType.BStr)] string ribbonId);
     }
+
+    [ComImport]
+    [Guid("000C033E-0000-0000-C000-000000000046")]
+    [TypeLibType(
+        TypeLibTypeFlags.FDispatchable |
+        TypeLibTypeFlags.FNonExtensible |
+        TypeLibTypeFlags.FDual)]
+    public interface ICustomTaskPaneConsumer
+    {
+        [DispId(1)]
+        void CTPFactoryAvailable(
+            [In, MarshalAs(UnmanagedType.Interface)] object ctpFactory);
+    }
 }

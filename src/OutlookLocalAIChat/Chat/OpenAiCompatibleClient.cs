@@ -9,7 +9,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using OutlookLocalAIChat.Configuration;
-using OutlookLocalAIChat.Outlook;
 using OutlookLocalAIChat.Security;
 
 namespace OutlookLocalAIChat.Chat
@@ -29,17 +28,21 @@ namespace OutlookLocalAIChat.Chat
             };
         }
 
-        public async Task<string> CompleteAsync(
+        public async Task<ChatCompletionResponseMessage> CompleteAsync(
             AppSettings settings,
-            MessageSnapshot message,
-            IReadOnlyList<ChatTurn> history,
-            string userPrompt,
+            ChatCompletionRequest requestModel,
             CancellationToken cancellationToken)
         {
             if (settings == null || !settings.IsConfigured)
             {
-                throw new InvalidOperationException(
+                throw new AiEndpointException(
+                    "CONFIGURATION_INCOMPLETE",
                     "Open Settings and configure the endpoint, model, and API key.");
+            }
+
+            if (requestModel == null)
+            {
+                throw new ArgumentNullException(nameof(requestModel));
             }
 
             Uri endpoint;
@@ -47,15 +50,11 @@ namespace OutlookLocalAIChat.Chat
                 settings.BaseUrl,
                 out endpoint))
             {
-                throw new InvalidOperationException(
+                throw new AiEndpointException(
+                    "ENDPOINT_INVALID",
                     "The configured endpoint is invalid.");
             }
 
-            var requestModel = ChatRequestFactory.Create(
-                settings.Model,
-                message,
-                history,
-                userPrompt);
             var requestJson = _serializer.Serialize(requestModel);
 
             using (var request = new HttpRequestMessage(HttpMethod.Post, endpoint))
@@ -69,23 +68,71 @@ namespace OutlookLocalAIChat.Chat
                     Encoding.UTF8,
                     "application/json");
 
-                using (var response = await _httpClient
-                    .SendAsync(
-                        request,
-                        HttpCompletionOption.ResponseHeadersRead,
-                        cancellationToken)
-                    .ConfigureAwait(true))
+                HttpResponseMessage response;
+                try
                 {
-                    var responseText = await ReadBoundedAsync(
-                        response.Content,
-                        cancellationToken).ConfigureAwait(true);
+                    response = await _httpClient
+                        .SendAsync(
+                            request,
+                            HttpCompletionOption.ResponseHeadersRead,
+                            cancellationToken)
+                        .ConfigureAwait(true);
+                }
+                catch (OperationCanceledException exception)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
 
+                    throw new AiEndpointException(
+                        "AI_TIMEOUT",
+                        "The AI endpoint did not respond within 120 seconds.",
+                        exception);
+                }
+                catch (HttpRequestException exception)
+                {
+                    throw CreateNetworkException(exception);
+                }
+
+                using (response)
+                {
+                    string responseText;
+                    try
+                    {
+                        responseText = await ReadBoundedAsync(
+                            response.Content,
+                            cancellationToken).ConfigureAwait(true);
+                    }
+                    catch (AiEndpointException)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception)
+                    {
+                        throw new AiEndpointException(
+                            "RESPONSE_READ_FAILED",
+                            "The AI endpoint response could not be read.",
+                            exception);
+                    }
+
+                    var requestId = GetRequestId(response);
                     if (!response.IsSuccessStatusCode)
                     {
-                        throw new InvalidOperationException(
-                            "The AI endpoint returned HTTP " +
-                            (int)response.StatusCode +
-                            ". Check the endpoint, model, and API key.");
+                        var error = TryReadError(responseText);
+                        var status = (int)response.StatusCode;
+                        var reason = string.IsNullOrWhiteSpace(response.ReasonPhrase)
+                            ? response.StatusCode.ToString()
+                            : response.ReasonPhrase;
+                        throw new AiEndpointException(
+                            BuildHttpCode(status, reason),
+                            "The AI endpoint rejected the request: " +
+                            status + " " + reason + "." +
+                            RecoveryHint(status),
+                            httpStatus: status,
+                            providerCode: error?.code ?? error?.type,
+                            requestId: requestId,
+                            responseSnippet: error?.message ?? responseText);
                     }
 
                     ChatCompletionResponse completion;
@@ -95,28 +142,42 @@ namespace OutlookLocalAIChat.Chat
                             _serializer.Deserialize<ChatCompletionResponse>(
                                 responseText);
                     }
-                    catch (InvalidOperationException exception)
+                    catch (Exception exception)
                     {
-                        throw new InvalidOperationException(
+                        throw new AiEndpointException(
+                            "RESPONSE_INVALID_JSON",
                             "The AI endpoint returned invalid JSON.",
-                            exception);
+                            exception,
+                            (int)response.StatusCode,
+                            requestId: requestId,
+                            responseSnippet: responseText);
                     }
 
-                    var content =
+                    var message =
                         completion?.choices != null &&
                         completion.choices.Count > 0
-                            ? completion.choices[0]?.message?.content
+                            ? completion.choices[0]?.message
                             : null;
 
-                    if (string.IsNullOrWhiteSpace(content))
+                    var hasToolCalls =
+                        message?.tool_calls != null &&
+                        message.tool_calls.Count > 0;
+                    if (message == null ||
+                        (!hasToolCalls &&
+                         string.IsNullOrWhiteSpace(message.content)))
                     {
-                        throw new InvalidOperationException(
-                            "The AI endpoint returned no message text.");
+                        throw new AiEndpointException(
+                            "RESPONSE_MISSING_CONTENT",
+                            "The AI endpoint returned neither message text nor tool calls.",
+                            httpStatus: (int)response.StatusCode,
+                            requestId: requestId,
+                            responseSnippet: responseText);
                     }
 
-                    return TextBoundary.PlainText(
-                        content,
+                    message.content = TextBoundary.PlainText(
+                        message.content,
                         TextBoundary.MaxAssistantCharacters);
+                    return message;
                 }
             }
         }
@@ -134,7 +195,8 @@ namespace OutlookLocalAIChat.Chat
                 content.Headers.ContentLength.Value >
                 TextBoundary.MaxHttpResponseCharacters)
             {
-                throw new InvalidOperationException(
+                throw new AiEndpointException(
+                    "RESPONSE_TOO_LARGE",
                     "The AI endpoint response was too large.");
             }
 
@@ -164,7 +226,8 @@ namespace OutlookLocalAIChat.Chat
                     if (builder.Length + read >
                         TextBoundary.MaxHttpResponseCharacters)
                     {
-                        throw new InvalidOperationException(
+                        throw new AiEndpointException(
+                            "RESPONSE_TOO_LARGE",
                             "The AI endpoint response was too large.");
                     }
 
@@ -172,6 +235,149 @@ namespace OutlookLocalAIChat.Chat
                 }
 
                 return builder.ToString();
+            }
+        }
+
+        private static AiEndpointException CreateNetworkException(
+            HttpRequestException exception)
+        {
+            var webException = FindWebException(exception);
+            var code = "NETWORK_REQUEST_FAILED";
+            if (webException != null)
+            {
+                switch (webException.Status)
+                {
+                    case WebExceptionStatus.NameResolutionFailure:
+                        code = "NETWORK_NAME_RESOLUTION";
+                        break;
+                    case WebExceptionStatus.ConnectFailure:
+                        code = "NETWORK_CONNECT_FAILURE";
+                        break;
+                    case WebExceptionStatus.TrustFailure:
+                    case WebExceptionStatus.SecureChannelFailure:
+                        code = "TLS_SECURE_CHANNEL_FAILURE";
+                        break;
+                    case WebExceptionStatus.ProxyNameResolutionFailure:
+                        code = "NETWORK_PROXY_NAME_RESOLUTION";
+                        break;
+                    case WebExceptionStatus.Timeout:
+                        code = "AI_TIMEOUT";
+                        break;
+                    default:
+                        code = "NETWORK_" +
+                            webException.Status.ToString().ToUpperInvariant();
+                        break;
+                }
+            }
+
+            return new AiEndpointException(
+                code,
+                "The AI endpoint could not be reached. Check its URL, " +
+                "network access, TLS certificate, and whether the local server is running.",
+                exception);
+        }
+
+        private ChatCompletionError TryReadError(string responseText)
+        {
+            try
+            {
+                return _serializer
+                    .Deserialize<ChatCompletionResponse>(responseText)
+                    ?.error;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static WebException FindWebException(Exception exception)
+        {
+            var current = exception;
+            while (current != null)
+            {
+                var webException = current as WebException;
+                if (webException != null)
+                {
+                    return webException;
+                }
+
+                current = current.InnerException;
+            }
+
+            return null;
+        }
+
+        private static string GetRequestId(HttpResponseMessage response)
+        {
+            foreach (var name in new[]
+            {
+                "x-request-id",
+                "request-id",
+                "x-correlation-id",
+                "traceparent"
+            })
+            {
+                IEnumerable<string> values;
+                if (response.Headers.TryGetValues(name, out values))
+                {
+                    foreach (var value in values)
+                    {
+                        return TextBoundary.PlainText(value, 200);
+                    }
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static string BuildHttpCode(int status, string reason)
+        {
+            var builder = new StringBuilder();
+            foreach (var character in reason ?? string.Empty)
+            {
+                if (char.IsLetterOrDigit(character))
+                {
+                    builder.Append(char.ToUpperInvariant(character));
+                }
+                else if (builder.Length > 0 &&
+                         builder[builder.Length - 1] != '_')
+                {
+                    builder.Append('_');
+                }
+            }
+
+            return
+                "HTTP_" +
+                status +
+                "_" +
+                builder.ToString().Trim('_');
+        }
+
+        private static string RecoveryHint(int status)
+        {
+            switch (status)
+            {
+                case 400:
+                    return
+                        " The endpoint may not support OpenAI-compatible tool calling, " +
+                        "or the model name/request format is invalid.";
+                case 401:
+                    return " Verify the API key.";
+                case 403:
+                    return " Verify the API key permissions and endpoint policy.";
+                case 404:
+                    return " Verify the base URL and model name.";
+                case 408:
+                    return " Retry after checking endpoint load.";
+                case 413:
+                    return " The endpoint rejected the bounded mailbox context size.";
+                case 429:
+                    return " The endpoint is rate-limiting requests. Retry later.";
+                default:
+                    return status >= 500
+                        ? " The endpoint failed internally. Check its server logs."
+                        : string.Empty;
             }
         }
     }

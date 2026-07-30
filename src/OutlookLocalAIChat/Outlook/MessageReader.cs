@@ -20,7 +20,6 @@ namespace OutlookLocalAIChat.Outlook
             object inspector = null;
             object explorer = null;
             object selection = null;
-            object parent = null;
 
             try
             {
@@ -63,6 +62,67 @@ namespace OutlookLocalAIChat.Outlook
                         "The selected Outlook item is not an email.");
                 }
 
+                return CaptureItem(item);
+            }
+            finally
+            {
+                Release(selection);
+                Release(explorer);
+                Release(inspector);
+                Release(item);
+            }
+        }
+
+        public MessageSnapshot CaptureById(
+            string entryId,
+            string storeId)
+        {
+            if (string.IsNullOrWhiteSpace(entryId))
+            {
+                throw new ArgumentException(
+                    "A message entry ID is required.",
+                    nameof(entryId));
+            }
+
+            object session = null;
+            object item = null;
+            try
+            {
+                dynamic application = _outlookApplication;
+                session = application.Session;
+                dynamic outlookSession = session;
+                item = string.IsNullOrWhiteSpace(storeId)
+                    ? outlookSession.GetItemFromID(entryId)
+                    : outlookSession.GetItemFromID(entryId, storeId);
+                return CaptureItem(item);
+            }
+            finally
+            {
+                Release(item);
+                Release(session);
+            }
+        }
+
+        internal static MessageSnapshot CaptureItem(object item)
+        {
+            if (item == null)
+            {
+                throw new ArgumentNullException(nameof(item));
+            }
+
+            object parent = null;
+            try
+            {
+                dynamic mail = item;
+                var messageClass = SafeString(() => mail.MessageClass);
+                if (!messageClass.StartsWith(
+                    "IPM.Note",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        "The Outlook item is not an email.");
+                }
+
                 parent = SafeObject(() => mail.Parent);
                 var storeId = string.Empty;
                 if (parent != null)
@@ -70,6 +130,11 @@ namespace OutlookLocalAIChat.Outlook
                     dynamic folder = parent;
                     storeId = SafeString(() => folder.StoreID);
                 }
+
+                var receivedAt =
+                    SafeDateTime(() => mail.ReceivedTime) ??
+                    SafeDateTime(() => mail.SentOn) ??
+                    SafeDateTime(() => mail.CreationTime);
 
                 return new MessageSnapshot(
                     SafeString(() => mail.EntryID),
@@ -83,7 +148,7 @@ namespace OutlookLocalAIChat.Outlook
                     TextBoundary.PlainText(
                         SafeString(() => mail.To),
                         2000),
-                    SafeDateTime(() => mail.ReceivedTime),
+                    receivedAt,
                     TextBoundary.PlainText(
                         SafeString(() => mail.Body),
                         TextBoundary.MaxMessageBodyCharacters));
@@ -91,11 +156,20 @@ namespace OutlookLocalAIChat.Outlook
             finally
             {
                 Release(parent);
-                Release(selection);
-                Release(explorer);
-                Release(inspector);
-                Release(item);
             }
+        }
+
+        internal static bool IsMailItem(object item)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            dynamic mail = item;
+            return SafeString(() => mail.MessageClass).StartsWith(
+                "IPM.Note",
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private static string BuildSender(dynamic mail)

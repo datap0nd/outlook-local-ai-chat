@@ -1,11 +1,12 @@
 # Outlook Local AI Chat
 
 A Windows-only AI chat add-in for classic Outlook in Microsoft Office
-Professional Plus 2021. It installs locally, reads only the selected email, and
-opens unsent drafts for human review.
+Professional Plus 2021. It installs locally, opens as a native Outlook sidebar,
+and lets an OpenAI-compatible model request bounded read-only context from the
+local Inbox and Sent Items. It opens unsent drafts for human review.
 
 It does not use Microsoft 365 add-in deployment, Microsoft Graph, Entra ID, or
-Outlook MCP.
+an external Outlook MCP server.
 
 ## Install
 
@@ -14,7 +15,7 @@ Outlook MCP.
    [OutlookLocalAIChatSetup.exe](https://github.com/datap0nd/outlook-local-ai-chat/releases/latest/download/OutlookLocalAIChatSetup.exe).
 3. Run the installer for your Windows account.
 4. Start classic Outlook.
-5. Select an email and choose **AI Chat > Open AI Chat** on the ribbon.
+5. Choose **AI Chat > Mailbox AI Chat** on the ribbon.
 6. Open **Settings** and enter:
    - the OpenAI-compatible endpoint or base URL;
    - the model name;
@@ -37,49 +38,69 @@ distribution.
 
 ## Use
 
-1. Select or open a normal email.
-2. Open **AI Chat**.
-3. Ask questions or request draft text.
-4. Continue refining the text in the conversation.
-5. Choose **Open reply draft** or **Open new draft**.
-6. Review, edit, address, and send the message using Outlook's normal editor.
+1. Open **Mailbox AI Chat**. The chat appears as a sidebar inside Outlook.
+2. Ask a mailbox question, such as "What did I agree to send this week?"
+3. The model can search Inbox and Sent Items, inspect selected results, and load
+   a conversation thread when needed.
+4. The sidebar records which bounded context operations ran.
+5. Continue refining the answer or ask for draft text.
+6. Choose **Reply draft** or **New draft**.
+7. Review, edit, address, and send the message using Outlook's normal editor.
 
-The conversation remains in memory only while the chat window is open.
+Selecting an email is optional for mailbox questions. When one is selected, the
+model receives its metadata and may request its body using the temporary
+`selected` handle. The conversation remains in memory until **New chat** is
+chosen or Outlook closes.
 
 ## Hard security boundary
 
-The model is not an Outlook agent.
+The model is not given general Outlook access.
 
-- The AI request contains messages only. It contains no tools, functions, or
-  executable command schema.
-- The model client receives a plain-text snapshot. It never receives the Outlook
-  application object or draft service.
+- The AI request exposes exactly three tools: `search_mailbox`,
+  `read_messages`, and `read_thread`.
+- The local host rejects every other tool name and caps tool calls, tool rounds,
+  result counts, message bodies, and total returned context.
+- Search results use temporary handles. The model cannot submit arbitrary COM
+  objects, Outlook commands, or executable code.
+- The model client never receives the Outlook application object or draft
+  service.
 - Model output is length-limited plain text displayed in a Windows control. It is
   never evaluated, executed, or rendered as HTML.
 - Only explicit local button events can call `CreateReplyDraft` or
   `CreateNewDraft`.
-- The draft service exposes no send, move, delete, schedule, or mailbox traversal
-  operation.
+- The model-invoked mailbox host contains no send, move, delete, schedule,
+  categorize, mark, or drafting operation.
+- The separate draft service exposes no send, move, delete, schedule, or mailbox
+  traversal operation.
 - Drafts are saved and displayed as unsent Outlook items.
 - CI fails if forbidden Outlook action calls are introduced.
 
-These controls prevent model output from reaching an email-send capability in
-this implementation. They do not claim protection against a compromised Windows
-account, a modified add-in binary, vulnerabilities in Outlook or .NET, or an
-administrator replacing the installed files.
+These controls let model output select read-only context while preventing it
+from reaching an email-send or mailbox-mutation capability. They do not claim
+protection against a compromised Windows account, modified add-in binary,
+vulnerabilities in Outlook or .NET, or an administrator replacing installed
+files.
 
 See [SECURITY.md](SECURITY.md) for the full threat model.
 
 ## Data flow
 
-For every chat request, the add-in sends the configured endpoint:
+Every chat request initially sends the configured endpoint:
 
-- selected email subject;
-- sender and recipient display strings;
-- received timestamp;
-- up to 24,000 characters of plain-text body;
+- selected email metadata, when an email is selected;
 - up to 12 recent chat turns;
 - the current prompt.
+
+The model may then request:
+
+- up to 20 bounded result summaries from the primary Inbox and Sent Items;
+- up to four bounded message bodies per tool call;
+- up to 12 messages from one Outlook conversation;
+- at most four tool calls per round and four context-retrieval rounds.
+
+Email bodies are sent only when the model requests them through an approved
+read-only tool. The add-in does not index, upload, or transmit the entire
+mailbox automatically.
 
 Nothing is sent to Microsoft 365 by the add-in. Outlook itself continues to use
 whatever mail server your organization configured.
@@ -94,8 +115,30 @@ Authorization: Bearer YOUR_KEY
 Content-Type: application/json
 ```
 
-The request uses only `model`, `messages`, and `stream: false`. The response must
-provide `choices[0].message.content` as text.
+The request uses `model`, `messages`, `stream: false`, and standard
+OpenAI-compatible function tools. The endpoint and selected model must support
+chat-completions tool calling. The final response must provide
+`choices[0].message.content` as text.
+
+If a request fails, the sidebar shows diagnostic identifiers such as:
+
+```text
+HTTP_401_UNAUTHORIZED
+HTTP_400_BAD_REQUEST
+NETWORK_CONNECT_FAILURE
+NETWORK_NAME_RESOLUTION
+TLS_SECURE_CHANNEL_FAILURE
+AI_TIMEOUT
+RESPONSE_INVALID_JSON
+RESPONSE_MISSING_CONTENT
+MAILBOX_TOOL_ROUND_LIMIT
+OUTLOOK_COM_0x800...
+```
+
+For HTTP failures it also shows the provider error message/code, request ID when
+present, and a bounded response excerpt. The local diagnostic log records the
+operation, exception type, diagnostic code, and HRESULT without email content,
+prompts, endpoint responses, or API keys.
 
 ## Remove
 
@@ -154,5 +197,6 @@ GitHub Actions builds, smoke-tests, and publishes the same single-file installer
 - Microsoft Office Professional Plus 2021
 - 32-bit or 64-bit Office on Windows
 - .NET Framework 4.8
+- OpenAI-compatible endpoint and model with tool-calling support
 
 The new Outlook for Windows does not load COM add-ins.

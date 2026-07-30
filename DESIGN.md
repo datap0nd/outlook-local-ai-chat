@@ -1,6 +1,6 @@
 ---
 name: Outlook Local AI Chat
-description: A restrained Windows utility for discussing one selected email and opening user-reviewed Outlook drafts.
+description: A restrained Outlook sidebar for chatting with bounded mailbox context and opening user-reviewed drafts.
 colors:
   action-blue: "#005fb8"
   window: "Canvas"
@@ -82,14 +82,14 @@ components:
 
 **Creative North Star: "The Guardrailed Desk Tool"**
 
-Outlook Local AI Chat is a compact native Windows productivity utility. It should feel adjacent to classic Outlook, not like an AI showcase: familiar system typography, quiet white and cool-gray surfaces, square fields, restrained density, and blue reserved for direct actions.
+Outlook Local AI Chat is a compact native Outlook sidebar. It should feel native to classic Outlook, not like an AI showcase: familiar system typography, quiet white and cool-gray surfaces, square fields, restrained density, and blue reserved for direct actions.
 
-The screen tells one ordered story: confirm which email is loaded, discuss that bounded plain-text snapshot, then deliberately open an unsent draft in Outlook. The visual hierarchy must keep this read/chat/draft-only boundary obvious. Model output is conversation content, never an executable command, and no control may imply that the utility can send mail.
+The screen tells one ordered story: confirm mailbox scope and the optional selected message, ask a question, observe which bounded read-only context was loaded, then deliberately open an unsent draft in Outlook. The visual hierarchy must keep this read/chat/draft-only boundary obvious. Model output may choose read context but can never invoke a mailbox mutation, and no control may imply that the utility can send mail.
 
 **Key Characteristics:**
 
 - Native Windows behavior and system settings take priority over decorative identity.
-- One selected-message strip anchors the current scope.
+- One mailbox-scope strip anchors the sidebar and optional selected message.
 - A large plain-text transcript carries the work without chat bubbles or HTML treatment.
 - The composer and AI action are visually bounded together.
 - Draft actions are separate, secondary, and enabled only when usable.
@@ -134,7 +134,7 @@ The palette is mostly Windows system color roles, with a fixed Outlook-adjacent 
 
 ### Hierarchy
 
-- **Title** (bold, nominally 12pt): Selected email subject in the message strip.
+- **Title** (bold, nominally 12pt): Mailbox chat scope in the top strip.
 - **Body** (regular, nominally 10pt): Transcript turns, composer text, settings fields, and primary reading content.
 - **Label** (bold, nominally 9pt): Speaker names, field labels, and the primary action.
 - **Hint** (regular, no smaller than 8pt): Keyboard guidance, draft disclosure, metadata, and status copy.
@@ -147,9 +147,9 @@ The palette is mostly Windows system color roles, with a fixed Outlook-adjacent 
 
 ## Layout
 
-The chat window is a single-column, vertically stacked utility sized at 540 by 720 client pixels with a 440 by 580 minimum. The top selected-message strip is 76 pixels high, followed by a compact 38-pixel toolbar. The transcript consumes all remaining flexible height. The 118-pixel composer band, 64-pixel draft-action area, and 54-pixel status band remain anchored at the bottom.
+The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 72 pixels high, followed by a compact 38-pixel toolbar. The transcript consumes all remaining flexible height. The 118-pixel composer band, 64-pixel draft-action area, and 64-pixel status band remain anchored at the bottom.
 
-Horizontal content padding is 18 pixels in the main work areas. The toolbar uses 12 pixels, while the modal settings form uses 24 pixels. Vertical rhythm is compact, generally 3 to 10 pixels between related controls. The transcript stays visually open and scrolls vertically instead of becoming a stack of cards.
+Horizontal content padding is 14 pixels in the sidebar work areas. The toolbar uses 8 pixels, while the modal settings form uses 24 pixels. Vertical rhythm is compact, generally 3 to 10 pixels between related controls. The transcript stays visually open and scrolls vertically instead of becoming a stack of cards.
 
 The composer is a two-column grid: a fluid multiline text field and a fixed 104-pixel action column. The send button fills the available composer height. Draft actions align to the right beneath a full-width disclosure. Long message subjects, sender metadata, and status text ellipsize rather than breaking the overall frame.
 
@@ -157,7 +157,7 @@ The settings window is a centered modal, 520 by 365 client pixels with a 480 by 
 
 ### Named Rules
 
-**The Ordered Boundary Rule.** Keep message identity, conversation, composer, draft controls, and status in that order. This sequence is the interface's security explanation.
+**The Ordered Boundary Rule.** Keep mailbox scope, conversation and context ledger, composer, draft controls, and status in that order. This sequence is the interface's security explanation.
 
 **The Transcript-Breathes Rule.** Fixed utility bands yield height to the transcript. Never shrink the conversation into a decorative card or make drafting controls compete with it.
 
@@ -179,24 +179,24 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 
 ## Components
 
-### Selected Message Strip
+### Mailbox Scope Strip
 
 - **Character:** Quiet context anchor, not a card.
-- **Structure:** Muted full-width band with a bold, ellipsized subject and a secondary sender line.
-- **State:** When no email is available, the same region says "No email selected" and tells the user to select or open one before refreshing.
+- **Structure:** Muted full-width band with a bold "Mailbox chat" title and an ellipsized optional selected-message subject.
+- **State:** When no email is selected, the same region explicitly says mailbox search remains available.
 
 ### Toolbar Links
 
 - **Shape:** Borderless, square, 28-pixel-high buttons.
 - **Color:** White canvas with action-blue text in standard contrast.
-- **State:** Refresh email and Settings disable while a request is active. Native focus and disabled rendering remain visible.
+- **State:** Refresh selection, New chat, and Settings disable while a request is active. Native focus and disabled rendering remain visible.
 
 ### Transcript
 
 - **Character:** A spacious, read-only plain-text document.
 - **Structure:** Borderless white surface with vertical scrolling and no automatic URL detection.
-- **Turns:** Speaker names are bold. "You" uses the action color; "Assistant" uses primary text. System messages are italic secondary text.
-- **Accessibility:** Accessible name is "AI chat conversation"; the description identifies it as a plain-text conversation about the selected Outlook email.
+- **Turns:** Speaker names are bold. "You" uses the action color; "Assistant" uses primary text. Context-loading entries are italic secondary text and endpoint errors use explicit diagnostic codes.
+- **Accessibility:** Accessible name is "Mailbox AI chat conversation"; the description identifies it as a plain-text mailbox conversation and context-loading ledger.
 
 ### Composer
 
@@ -215,8 +215,8 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 ### Draft Buttons
 
 - **Shape:** Square, flat, 34-pixel-high secondary controls with one-pixel system borders.
-- **Labels:** "Open new draft" and "Open reply draft" explicitly describe the result.
-- **State:** Both remain disabled until a complete assistant response exists. Reply draft also requires a reply-capable selected message. Both disable during an active request.
+- **Labels:** "New draft" and "Reply draft" explicitly describe the result.
+- **State:** Both remain disabled until a complete assistant response exists. Reply draft also requires a reply-capable message selected when the request began. Both disable during an active request.
 - **Boundary:** A click may create, save, and display an unsent Outlook draft. No send, schedule, move, delete, mark, categorize, or source-message modification action belongs in this component family.
 
 ### Draft Disclosure
@@ -227,14 +227,14 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 
 ### Status Band
 
-- **Character:** A full-width operational ledger at the bottom of the window.
-- **Content:** States selected-message scope, waiting, cancellation, timeout, discarded response, configuration, and unsent-draft outcomes in plain language.
+- **Character:** A full-width operational ledger at the bottom of the sidebar.
+- **Content:** States mailbox scope, context retrieval, waiting, cancellation, diagnostic code, configuration, and unsent-draft outcomes in plain language.
 - **Accessibility:** Exposes a status-bar role. Errors use error color plus explicit recovery copy.
 
 ### Settings Fields and Actions
 
 - **Fields:** Endpoint, Model, and API key are stacked square inputs with bold labels and accessible descriptions. The API key uses the system password character.
-- **Disclosure:** Explain that the selected email and recent conversation go to the configured endpoint, HTTP is loopback-only, and the key is encrypted for the current Windows user.
+- **Disclosure:** Explain that prompts, recent conversation, and model-requested bounded mailbox context go to the configured endpoint, HTTP is loopback-only, and the key is encrypted for the current Windows user.
 - **Actions:** Save is primary; Cancel is secondary. Enter activates Save and Escape activates Cancel.
 - **Errors:** Validation failures appear inline as an accessible alert without closing the modal.
 
@@ -242,20 +242,20 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 
 ### Do:
 
-- **Do** keep the selected-message identity visible before conversation content.
-- **Do** state that only the selected email is available to chat.
+- **Do** keep mailbox scope and optional selected-message identity visible before conversation content.
+- **Do** state that Inbox and Sent Items are available only through bounded read tools.
 - **Do** keep draft controls secondary, explicit, and disabled until a valid assistant response exists.
 - **Do** disclose that drafting uses the entire latest assistant response.
 - **Do** say "unsent draft" and "for your review" in successful draft status text.
 - **Do** inherit Windows system fonts, focus behavior, text scaling, and high-contrast colors.
 - **Do** preserve keyboard operation, including Ctrl+Enter to send, Enter to save settings, and Escape to cancel settings.
-- **Do** restore user input after request failure, timeout, cancellation, or changed-message discard when applicable.
+- **Do** restore user input after request failure, timeout, or cancellation.
 
 ### Don't:
 
 - **Don't** add a Send Mail control, auto-send behavior, scheduling, source-message mutation, or language that implies any of those capabilities.
-- **Don't** expose model tool calls, commands, HTML, clickable output, or rich interactive response cards.
-- **Don't** hide which email is loaded or allow a response for a changed email to enter the active conversation.
+- **Don't** expose arbitrary model commands, HTML, clickable output, or rich interactive response cards.
+- **Don't** hide which mailbox scope or selected-message reference is available.
 - **Don't** rely on fixed colors when Windows high contrast is active.
 - **Don't** replace native focus and disabled states with color-only signals.
 - **Don't** use chat bubbles, avatars, glowing AI motifs, gradients, rounded cards, or ornamental motion.

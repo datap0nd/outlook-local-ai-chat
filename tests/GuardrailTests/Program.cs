@@ -10,6 +10,7 @@ using OutlookLocalAIChat.Configuration;
 using OutlookLocalAIChat.Interop;
 using OutlookLocalAIChat.Outlook;
 using OutlookLocalAIChat.Security;
+using OutlookLocalAIChat.UI;
 
 namespace GuardrailTests
 {
@@ -25,14 +26,20 @@ namespace GuardrailTests
                 Run("Loopback HTTP endpoint is accepted", LoopbackHttpIsAccepted);
                 Run("Remote HTTP endpoint is rejected", RemoteHttpIsRejected);
                 Run("Text boundary removes controls and truncates", TextIsBounded);
-                Run("Request exposes no model tools", RequestHasNoTools);
-                Run("Request schema is messages only", RequestSchemaIsMessagesOnly);
+                Run("Mailbox tools are read only", MailboxToolsAreReadOnly);
+                Run("Request schema exposes bounded tools", RequestSchemaIsBounded);
                 Run("Email is labeled as untrusted data", EmailIsUntrustedData);
                 Run("Conversation history is bounded", HistoryIsBounded);
                 Run("Draft service exposes no send capability", DraftHasNoSend);
                 Run(
-                    "Office startup COM interfaces are dual",
+                    "Mailbox host exposes one guarded dispatcher",
+                    MailboxHostHasGuardedDispatcher);
+                Run(
+                    "Office startup and task pane COM interfaces are dual",
                     OfficeStartupInterfacesAreDual);
+                Run(
+                    "Chat pane is a registered COM control",
+                    ChatPaneIsComControl);
                 Console.WriteLine("PASS: " + _passed + " guardrail tests");
                 return 0;
             }
@@ -90,28 +97,47 @@ namespace GuardrailTests
             Assert(result == "abc", "Unexpected bounded text: " + result);
         }
 
-        private static void RequestHasNoTools()
+        private static void MailboxToolsAreReadOnly()
         {
             var request = MakeRequest(new List<ChatTurn>());
             var json = new JavaScriptSerializer().Serialize(request);
-            Assert(!json.Contains("\"tools\""), "Request contains tools.");
             Assert(
-                !json.Contains("\"tool_choice\""),
-                "Request contains tool_choice.");
-            Assert(
-                !json.Contains("\"function_call\""),
-                "Request contains function_call.");
+                json.Contains("\"tools\"") &&
+                json.Contains("\"tool_choice\":\"auto\""),
+                "Request does not expose bounded mailbox tools.");
             Assert(json.Contains("\"stream\":false"), "Streaming must be off.");
+
+            var names = request.tools
+                .Select(tool => tool.function.name)
+                .OrderBy(name => name)
+                .ToArray();
+            var expected = new[]
+            {
+                "read_messages",
+                "read_thread",
+                "search_mailbox"
+            };
+            Assert(
+                names.SequenceEqual(expected),
+                "Unexpected mailbox tools: " +
+                string.Join(", ", names));
         }
 
-        private static void RequestSchemaIsMessagesOnly()
+        private static void RequestSchemaIsBounded()
         {
             var fields = typeof(ChatCompletionRequest)
                 .GetProperties(BindingFlags.Instance | BindingFlags.Public)
                 .Select(property => property.Name)
                 .OrderBy(name => name)
                 .ToArray();
-            var expected = new[] { "messages", "model", "stream" };
+            var expected = new[]
+            {
+                "messages",
+                "model",
+                "stream",
+                "tool_choice",
+                "tools"
+            };
             Assert(
                 fields.SequenceEqual(expected),
                 "Model request capabilities changed: " +
@@ -121,10 +147,13 @@ namespace GuardrailTests
         private static void EmailIsUntrustedData()
         {
             var request = MakeRequest(new List<ChatTurn>());
-            var context = request.messages[1].content;
+            var context =
+                ((ChatCompletionInputMessage)request.messages[1])
+                .content;
             Assert(
-                context.Contains("<selected_email>") &&
-                context.Contains("untrusted reference data"),
+                context.Contains("<selected_email_reference") &&
+                context.Contains("untrusted reference data") &&
+                !context.Contains("Message body"),
                 "Email boundary markers are missing.");
         }
 
@@ -155,6 +184,22 @@ namespace GuardrailTests
                 string.Join(", ", methods));
         }
 
+        private static void MailboxHostHasGuardedDispatcher()
+        {
+            var methods = typeof(MailboxToolHost)
+                .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                .Where(method =>
+                    method.DeclaringType ==
+                    typeof(MailboxToolHost))
+                .Select(method => method.Name)
+                .ToArray();
+            Assert(
+                methods.Length == 1 &&
+                methods[0] == "Execute",
+                "Mailbox tool host public capabilities changed: " +
+                string.Join(", ", methods));
+        }
+
         private static void OfficeStartupInterfacesAreDual()
         {
             Assert(
@@ -163,13 +208,47 @@ namespace GuardrailTests
             Assert(
                 typeof(IRibbonExtensibility).IsImport,
                 "IRibbonExtensibility must be a COM-import interface.");
+            Assert(
+                typeof(ICustomTaskPaneConsumer).IsImport,
+                "ICustomTaskPaneConsumer must be a COM-import interface.");
 
             AssertDual(typeof(IDTExtensibility2));
             AssertDual(typeof(IRibbonExtensibility));
+            AssertDual(typeof(ICustomTaskPaneConsumer));
 
             var addIn = new AddIn();
             AssertComInterface(addIn, typeof(IDTExtensibility2));
             AssertComInterface(addIn, typeof(IRibbonExtensibility));
+            AssertComInterface(
+                addIn,
+                typeof(ICustomTaskPaneConsumer));
+        }
+
+        private static void ChatPaneIsComControl()
+        {
+            var type = typeof(ChatPane);
+            var visible = type
+                .GetCustomAttributes(
+                    typeof(ComVisibleAttribute),
+                    false)
+                .Cast<ComVisibleAttribute>()
+                .Single();
+            var progId = type
+                .GetCustomAttributes(
+                    typeof(ProgIdAttribute),
+                    false)
+                .Cast<ProgIdAttribute>()
+                .Single();
+            Assert(visible.Value, "ChatPane must be COM visible.");
+            Assert(
+                progId.Value ==
+                "OutlookLocalAIChat.ChatPane",
+                "Unexpected ChatPane ProgID.");
+            Assert(
+                type.GUID ==
+                new Guid(
+                    "14D24FA1-4342-442F-B68B-B68D7372794C"),
+                "Unexpected ChatPane CLSID.");
         }
 
         private static void AssertDual(Type interfaceType)

@@ -70,8 +70,9 @@ namespace OutlookLocalAIChat.UI
                     ? SystemColors.GrayText
                     : Color.FromArgb(80, 80, 80),
                 Text =
-                    "The selected email and recent conversation are sent to this " +
-                    "endpoint. Use HTTPS, or HTTP only for a local endpoint. " +
+                    "Your prompt and recent conversation are sent to this endpoint. " +
+                    "The model can request bounded read-only context from your local " +
+                    "Inbox and Sent Items. Use HTTPS, or HTTP only for a local endpoint. " +
                     "The key is encrypted for your Windows account.",
                 AccessibleName = "Endpoint data disclosure"
             };

@@ -49,19 +49,24 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AddIn.cs" />
+    <Compile Include="Chat\AiEndpointException.cs" />
     <Compile Include="Chat\ChatModels.cs" />
     <Compile Include="Chat\ChatRequestFactory.cs" />
+    <Compile Include="Chat\MailboxToolCatalog.cs" />
     <Compile Include="Chat\OpenAiCompatibleClient.cs" />
     <Compile Include="Configuration\AppSettings.cs" />
     <Compile Include="Configuration\SettingsStore.cs" />
     <Compile Include="Interop\OfficeInterfaces.cs" />
     <Compile Include="Outlook\DraftService.cs" />
+    <Compile Include="Outlook\MailboxContextService.cs" />
+    <Compile Include="Outlook\MailboxToolHost.cs" />
     <Compile Include="Outlook\MessageReader.cs" />
     <Compile Include="Outlook\MessageSnapshot.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Security\TextBoundary.cs" />
-    <Compile Include="UI\ChatWindow.cs" />
+    <Compile Include="UI\ChatPane.cs" />
     <Compile Include="UI\SettingsWindow.cs" />
+    <Compile Include="Utilities\DiagnosticDetails.cs" />
     <Compile Include="Utilities\Log.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

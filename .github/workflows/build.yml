@@ -50,8 +50,8 @@ jobs:
           if (-not $registration.Contains("PublicKeyToken=f51b005bfa6d7cc3")) {
             throw "The add-in strong-name identity changed."
           }
-          if ($registration.Contains("OutlookLocalAIChat.UI.ChatWindow")) {
-            throw "A non-add-in class was exported to COM."
+          if (-not $registration.Contains("OutlookLocalAIChat.UI.ChatPane")) {
+            throw "The Outlook sidebar control was not exported to COM."
           }
 
       - name: Install Inno Setup
@@ -62,7 +62,7 @@ jobs:
         shell: pwsh
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
-            "/DAppVersion=1.0.1" `
+            "/DAppVersion=1.1.0" `
             "installer\OutlookLocalAIChat.iss"
 
       - name: Smoke-test installer registration
@@ -80,6 +80,7 @@ jobs:
             throw "The installed add-in class could not be instantiated."
           }
           $clsid = "{0D6E56F9-BE2D-4B94-B5E4-4C2DB0FD13E7}"
+          $paneClsid = "{14D24FA1-4342-442F-B68B-B68D7372794C}"
           foreach ($view in @(
             [Microsoft.Win32.RegistryView]::Registry64,
             [Microsoft.Win32.RegistryView]::Registry32
@@ -103,10 +104,20 @@ jobs:
               if (-not (Test-Path $codeBasePath)) {
                 throw "The $view COM codebase does not resolve to the installed DLL."
               }
+              $paneServer = $root.OpenSubKey(
+                "Software\Classes\CLSID\$paneClsid\InprocServer32")
+              if ($null -eq $paneServer) {
+                throw "Sidebar COM registration is missing in $view."
+              }
+              if ([string]$paneServer.GetValue("Class") -ne
+                  "OutlookLocalAIChat.UI.ChatPane") {
+                throw "Sidebar COM class is wrong in $view."
+              }
             }
             finally {
               if ($null -ne $addin) { $addin.Dispose() }
               if ($null -ne $server) { $server.Dispose() }
+              if ($null -ne $paneServer) { $paneServer.Dispose() }
               $root.Dispose()
             }
           }
@@ -130,6 +141,12 @@ jobs:
                 $false)
               $root.DeleteSubKeyTree(
                 "Software\Classes\OutlookLocalAIChat.AddIn",
+                $false)
+              $root.DeleteSubKeyTree(
+                "Software\Classes\CLSID\$paneClsid",
+                $false)
+              $root.DeleteSubKeyTree(
+                "Software\Classes\OutlookLocalAIChat.ChatPane",
                 $false)
             }
             finally {

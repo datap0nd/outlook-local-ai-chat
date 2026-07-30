@@ -19,7 +19,9 @@ namespace OutlookLocalAIChat.Utilities
                 var line =
                     DateTime.UtcNow.ToString("O") + " " +
                     operation + " " +
-                    exception.GetType().Name + Environment.NewLine;
+                    exception.GetType().Name + " " +
+                    DiagnosticDetails.CodeForLog(exception) +
+                    Environment.NewLine;
                 File.AppendAllText(path, line);
             }
             catch

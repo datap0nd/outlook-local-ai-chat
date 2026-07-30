@@ -13,10 +13,13 @@ namespace OutlookLocalAIChat
     [ClassInterface(ClassInterfaceType.AutoDispatch)]
     public sealed class AddIn :
         IDTExtensibility2,
-        IRibbonExtensibility
+        IRibbonExtensibility,
+        ICustomTaskPaneConsumer
     {
         private object _outlookApplication;
-        private ChatWindow _chatWindow;
+        private object _ctpFactory;
+        private object _taskPane;
+        private ChatPane _chatPane;
 
         public void OnConnection(
             object application,
@@ -31,7 +34,7 @@ namespace OutlookLocalAIChat
             ExtDisconnectMode removeMode,
             ref Array custom)
         {
-            CloseWindow();
+            CloseTaskPane();
             _outlookApplication = null;
         }
 
@@ -45,7 +48,12 @@ namespace OutlookLocalAIChat
 
         public void OnBeginShutdown(ref Array custom)
         {
-            CloseWindow();
+            CloseTaskPane();
+        }
+
+        public void CTPFactoryAvailable(object ctpFactory)
+        {
+            _ctpFactory = ctpFactory;
         }
 
         public string GetCustomUI(string ribbonId)
@@ -61,10 +69,10 @@ namespace OutlookLocalAIChat
                 "<customUI xmlns=\"http://schemas.microsoft.com/office/2009/07/customui\">" +
                 "<ribbon><tabs><tab idMso=\"" + tabId + "\">" +
                 "<group id=\"OutlookLocalAIChat.Group\" label=\"AI Chat\">" +
-                "<button id=\"OutlookLocalAIChat.Open\" label=\"Open AI Chat\" " +
+                "<button id=\"OutlookLocalAIChat.Open\" label=\"Mailbox AI Chat\" " +
                 "size=\"large\" imageMso=\"ResearchPane\" onAction=\"OnOpenChat\" " +
-                "screentip=\"Open Local AI Chat\" " +
-                "supertip=\"Discuss the selected email and open unsent drafts.\"/>" +
+                "screentip=\"Open Mailbox AI Chat\" " +
+                "supertip=\"Chat with your mailbox in an Outlook sidebar and open unsent drafts.\"/>" +
                 "</group></tab></tabs></ribbon></customUI>";
         }
 
@@ -82,32 +90,55 @@ namespace OutlookLocalAIChat
                     return;
                 }
 
-                if (_chatWindow == null || _chatWindow.IsDisposed)
+                if (_ctpFactory == null)
                 {
-                    _chatWindow = new ChatWindow(_outlookApplication);
-                    _chatWindow.FormClosed += (sender, args) =>
+                    MessageBox.Show(
+                        "Outlook has not made the sidebar service available yet. " +
+                        "Wait a moment and try again.",
+                        "Outlook Local AI Chat",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (_taskPane == null)
+                {
+                    object parentWindow = GetRibbonContext(control);
+                    dynamic factory = _ctpFactory;
+                    _taskPane = factory.CreateCTP(
+                        "OutlookLocalAIChat.ChatPane",
+                        "Mailbox AI Chat",
+                        parentWindow ?? Type.Missing);
+
+                    dynamic pane = _taskPane;
+                    pane.DockPosition = 2;
+                    pane.Width = 380;
+
+                    _chatPane = pane.ContentControl as ChatPane ??
+                        ChatPane.LastCreated;
+                    if (_chatPane == null)
                     {
-                        _chatWindow = null;
-                    };
-                    _chatWindow.Show();
+                        throw new InvalidOperationException(
+                            "Outlook created the sidebar but its chat control was unavailable.");
+                    }
+
+                    _chatPane.Initialize(_outlookApplication);
+                    pane.Visible = true;
                 }
                 else
                 {
-                    _chatWindow.RefreshCurrentMessage();
-                    if (_chatWindow.WindowState == FormWindowState.Minimized)
-                    {
-                        _chatWindow.WindowState = FormWindowState.Normal;
-                    }
-
-                    _chatWindow.Show();
-                    _chatWindow.Activate();
+                    _chatPane?.RefreshSelectedMessage();
+                    dynamic pane = _taskPane;
+                    pane.Visible = true;
                 }
             }
             catch (Exception exception)
             {
                 Log.Error("OnOpenChat", exception);
                 MessageBox.Show(
-                    "AI Chat could not open. Restart Outlook and try again.",
+                    DiagnosticDetails.ForException(
+                        exception,
+                        "SIDEBAR_OPEN_FAILED"),
                     "Outlook Local AI Chat",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
@@ -135,14 +166,48 @@ namespace OutlookLocalAIChat
             return null;
         }
 
-        private void CloseWindow()
+        private static object GetRibbonContext(object control)
         {
-            if (_chatWindow != null && !_chatWindow.IsDisposed)
+            try
             {
-                _chatWindow.Close();
+                dynamic ribbonControl = control;
+                return ribbonControl?.Context;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void CloseTaskPane()
+        {
+            try
+            {
+                _chatPane?.Shutdown();
+                if (_taskPane != null)
+                {
+                    dynamic pane = _taskPane;
+                    pane.Visible = false;
+                }
+            }
+            catch (Exception exception)
+            {
+                Log.Error("CloseTaskPane", exception);
             }
 
-            _chatWindow = null;
+            Release(_taskPane);
+            Release(_ctpFactory);
+            _taskPane = null;
+            _ctpFactory = null;
+            _chatPane = null;
+        }
+
+        private static void Release(object value)
+        {
+            if (value != null && Marshal.IsComObject(value))
+            {
+                Marshal.ReleaseComObject(value);
+            }
         }
     }
 }
