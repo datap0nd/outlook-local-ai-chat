@@ -147,13 +147,13 @@ The palette is mostly Windows system color roles, with a fixed Outlook-adjacent 
 
 ## Layout
 
-The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 72 pixels high, followed by a compact 38-pixel toolbar. The transcript consumes all remaining flexible height. The 118-pixel composer band, 64-pixel draft-action area, and 64-pixel status band remain anchored at the bottom.
+The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 92 pixels high and includes the active model and read-only boundary, followed by a compact 38-pixel toolbar. The transcript consumes all remaining flexible height. The 118-pixel composer band, 64-pixel draft-action area, and 64-pixel status band remain anchored at the bottom.
 
 Horizontal content padding is 14 pixels in the sidebar work areas. The toolbar uses 8 pixels, while the modal settings form uses 24 pixels. Vertical rhythm is compact, generally 3 to 10 pixels between related controls. The transcript stays visually open and scrolls vertically instead of becoming a stack of cards.
 
 The composer is a two-column grid: a fluid multiline text field and a fixed 104-pixel action column. The send button fills the available composer height. Draft actions align to the right beneath a full-width disclosure. Long message subjects, sender metadata, and status text ellipsize rather than breaking the overall frame.
 
-The settings window is a centered modal, 520 by 455 client pixels with a 480 by 480 minimum. Endpoint, model, and API-key fields stack vertically. An explicit insecure-HTTP checkbox and transport warning follow the credential fields. Data-use guidance and validation errors sit before the bottom-right Save and Cancel actions.
+The settings window is a centered modal, 620 by 590 client pixels with a 560 by 570 minimum. Endpoint, editable model selector, and API-key fields stack vertically. The model selector includes a direct recommended-model action and concise tradeoff guidance. An explicit insecure-HTTP checkbox and transport warning follow the credential fields. A visible endpoint check validates authentication, optional model discovery, and a synthetic mailbox tool call before the bottom Save and Cancel actions.
 
 ### Named Rules
 
@@ -182,7 +182,7 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 ### Mailbox Scope Strip
 
 - **Character:** Quiet context anchor, not a card.
-- **Structure:** Muted full-width band with a bold "Mailbox chat" title and an ellipsized optional selected-message subject.
+- **Structure:** Muted full-width band with a bold "Mailbox chat" title, an ellipsized optional selected-message subject, and the active model plus read-only boundary.
 - **State:** When no email is selected, the same region explicitly says mailbox search remains available.
 
 ### Toolbar Links
@@ -233,10 +233,11 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 
 ### Settings Fields and Actions
 
-- **Fields:** Endpoint, Model, and API key are stacked square inputs with bold labels and accessible descriptions. The API key uses the system password character.
+- **Fields:** Endpoint, editable Model selector, and API key are stacked square inputs with bold labels and accessible descriptions. The model selector offers the balanced default plus quality-first and speed-first presets. The API key uses the system password character.
 - **Disclosure:** Explain that prompts, recent conversation, and model-requested bounded mailbox context go to the configured endpoint, the key is encrypted for the current Windows user, and non-local HTTP is available only through an explicit warning-bearing opt-in.
 - **Insecure HTTP:** Use a native checkbox labeled "Allow insecure HTTP for non-local endpoints." When enabled, show an adjacent text warning that the API key, prompts, and retrieved email context are sent without transport encryption.
-- **Actions:** Save is primary; Cancel is secondary. Enter activates Save and Escape activates Cancel.
+- **Actions:** Check endpoint is a left-aligned secondary action. Save is primary; Cancel is secondary. Enter activates Save and Escape activates Cancel.
+- **Endpoint Check:** Show progress, allow cancellation, and report the actual diagnostic code. A successful state means authentication, the selected model, and one synthetic read-only tool call passed. The probe must not load or execute against mailbox data.
 - **Errors:** Validation failures appear inline as an accessible alert without closing the modal.
 
 ## Do's and Don'ts

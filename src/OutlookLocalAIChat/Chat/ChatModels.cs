@@ -60,6 +60,16 @@ namespace OutlookLocalAIChat.Chat
         public ChatCompletionError error { get; set; }
     }
 
+    public sealed class ModelListResponse
+    {
+        public List<ModelListItem> data { get; set; }
+    }
+
+    public sealed class ModelListItem
+    {
+        public string id { get; set; }
+    }
+
     public sealed class ChatCompletionChoice
     {
         public ChatCompletionResponseMessage message { get; set; }

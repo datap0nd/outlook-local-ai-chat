@@ -84,6 +84,7 @@ namespace OutlookLocalAIChat.UI
         private readonly TextBox _composer = new TextBox();
         private readonly Label _scopeTitle = new Label();
         private readonly Label _scopeMeta = new Label();
+        private readonly Label _modelMeta = new Label();
         private readonly Label _status = new Label();
         private readonly Button _send = new Button();
         private readonly Button _replyDraft = new Button();
@@ -113,6 +114,8 @@ namespace OutlookLocalAIChat.UI
             AutoScaleMode = AutoScaleMode.Font;
             MinimumSize = new Size(300, 480);
             BuildLayout();
+            UpdateModelMeta();
+            ShowWelcome();
         }
 
         internal static ChatPane LastCreated { get; private set; }
@@ -213,7 +216,7 @@ namespace OutlookLocalAIChat.UI
                 RowCount = 6,
                 Padding = new Padding(0)
             };
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 118));
@@ -231,16 +234,23 @@ namespace OutlookLocalAIChat.UI
 
         private Control BuildHeader()
         {
-            var header = new Panel
+            var header = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = SurfaceMuted,
-                Padding = new Padding(14, 12, 14, 8)
+                Padding = new Padding(14, 10, 14, 8),
+                ColumnCount = 1,
+                RowCount = 3
             };
+            header.RowStyles.Add(
+                new RowStyle(SizeType.Absolute, 28));
+            header.RowStyles.Add(
+                new RowStyle(SizeType.Absolute, 22));
+            header.RowStyles.Add(
+                new RowStyle(SizeType.Absolute, 22));
 
             _scopeTitle.AutoEllipsis = true;
-            _scopeTitle.Dock = DockStyle.Top;
-            _scopeTitle.Height = 25;
+            _scopeTitle.Dock = DockStyle.Fill;
             _scopeTitle.Font = new Font(
                 Font.FontFamily,
                 Font.Size + 2F,
@@ -249,14 +259,24 @@ namespace OutlookLocalAIChat.UI
             _scopeTitle.Text = "Mailbox chat";
 
             _scopeMeta.AutoEllipsis = true;
-            _scopeMeta.Dock = DockStyle.Top;
-            _scopeMeta.Height = 22;
+            _scopeMeta.Dock = DockStyle.Fill;
             _scopeMeta.ForeColor = TextSecondary;
             _scopeMeta.Text =
                 "No selected email. Mailbox search is available.";
 
-            header.Controls.Add(_scopeMeta);
-            header.Controls.Add(_scopeTitle);
+            _modelMeta.AutoEllipsis = true;
+            _modelMeta.Dock = DockStyle.Fill;
+            _modelMeta.ForeColor = TextSecondary;
+            _modelMeta.Font = new Font(
+                Font.FontFamily,
+                Math.Max(8F, Font.Size - 1F),
+                FontStyle.Regular);
+            _modelMeta.AccessibleName =
+                "Active AI model and safety boundary";
+
+            header.Controls.Add(_scopeTitle, 0, 0);
+            header.Controls.Add(_scopeMeta, 0, 1);
+            header.Controls.Add(_modelMeta, 0, 2);
             return header;
         }
 
@@ -673,6 +693,7 @@ namespace OutlookLocalAIChat.UI
             _lastAssistantText = string.Empty;
             _draftSource = null;
             _transcript.Clear();
+            ShowWelcome();
             UpdateDraftButtons();
             SetStatus(
                 "New mailbox chat started. No previous context is retained.",
@@ -697,8 +718,10 @@ namespace OutlookLocalAIChat.UI
                 {
                     _settings =
                         settingsWindow.SavedSettings;
+                    UpdateModelMeta();
                     SetStatus(
-                        "AI endpoint settings saved.",
+                        "AI endpoint settings saved for " +
+                        _settings.Model + ".",
                         false);
                 }
             }
@@ -845,6 +868,34 @@ namespace OutlookLocalAIChat.UI
         {
             _scopeTitle.Text = "Mailbox chat";
             _scopeMeta.Text = text;
+        }
+
+        private void UpdateModelMeta()
+        {
+            var configured =
+                _settings != null &&
+                _settings.IsConfigured;
+            var model = _settings?.Model ?? string.Empty;
+            _modelMeta.Text = configured
+                ? "Model: " + model +
+                  "  |  Search and read only"
+                : "Setup required  |  Search and read only";
+        }
+
+        private void ShowWelcome()
+        {
+            AppendStyledBlock(
+                "Ready",
+                "Ask across Inbox and Sent Items. The model decides which bounded " +
+                "messages to load, and every context operation appears here.\n\n" +
+                "Try:\n" +
+                "- Summarize what needs a reply this week.\n" +
+                "- Find decisions about a project or topic.\n" +
+                "- Draft a concise reply based on the full conversation.",
+                TextSecondary,
+                FontStyle.Regular);
+            _transcript.SelectionStart = 0;
+            _transcript.ScrollToCaret();
         }
 
         private void ComposerKeyDown(

@@ -65,6 +65,10 @@ exposes create, save, and display operations but no send operation.
   text.
 - Never render model output as HTML or execute it as code.
 - Support an OpenAI-compatible `/v1/chat/completions` endpoint.
+- Recommend `qwen3.5-35b-a3b` as the balanced default while preserving editable
+  model identifiers and quality-first or speed-first fallbacks.
+- Verify authentication, optional `/v1/models` discovery, and actual read-only
+  tool-call compatibility from Settings without loading mailbox data.
 - Permit HTTPS endpoints and loopback HTTP endpoints for local model servers.
 - Permit non-local HTTP only after an explicit persisted opt-in that warns the
   user that the API key and mailbox context will travel without encryption.

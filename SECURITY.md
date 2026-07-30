@@ -82,6 +82,11 @@ explicit persisted opt-in in Settings and displays a warning because the API
 key, prompts, and retrieved email context are then sent without transport
 encryption.
 
+The Settings endpoint check may send the same Authorization header to
+`GET /v1/models`. It then submits a synthetic tool-call request containing no
+selected-message metadata, email bodies, or mailbox search results. The returned
+tool call is validated but never executed.
+
 ## Logging
 
 The diagnostic log records UTC time, operation name, exception type, diagnostic

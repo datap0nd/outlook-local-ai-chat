@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -181,7 +182,143 @@ namespace OutlookLocalAIChat.Chat
                     message.content = TextBoundary.PlainText(
                         message.content,
                         TextBoundary.MaxAssistantCharacters);
+                    NormalizeToolCalls(message.tool_calls);
                     return message;
+                }
+            }
+        }
+
+        public async Task<IReadOnlyList<string>> GetModelsAsync(
+            AppSettings settings,
+            CancellationToken cancellationToken)
+        {
+            if (settings == null)
+            {
+                throw new ArgumentNullException(nameof(settings));
+            }
+
+            Uri endpoint;
+            if (!AppSettings.TryGetModelsUri(
+                settings.BaseUrl,
+                settings.AllowInsecureHttp,
+                out endpoint))
+            {
+                throw new AiEndpointException(
+                    "ENDPOINT_INVALID",
+                    "The configured endpoint is invalid.");
+            }
+
+            if (string.IsNullOrWhiteSpace(settings.ApiKey))
+            {
+                throw new AiEndpointException(
+                    "CONFIGURATION_INCOMPLETE",
+                    "Enter an API key before checking the endpoint.");
+            }
+
+            using (var request =
+                new HttpRequestMessage(HttpMethod.Get, endpoint))
+            {
+                request.Headers.Authorization =
+                    new AuthenticationHeaderValue(
+                        "Bearer",
+                        settings.ApiKey);
+                request.Headers.Accept.Add(
+                    new MediaTypeWithQualityHeaderValue(
+                        "application/json"));
+
+                HttpResponseMessage response;
+                try
+                {
+                    response = await _httpClient
+                        .SendAsync(
+                            request,
+                            HttpCompletionOption.ResponseHeadersRead,
+                            cancellationToken)
+                        .ConfigureAwait(true);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (HttpRequestException exception)
+                {
+                    throw CreateNetworkException(
+                        exception,
+                        endpoint);
+                }
+
+                using (response)
+                {
+                    var responseText = await ReadBoundedAsync(
+                        response.Content,
+                        cancellationToken).ConfigureAwait(true);
+                    var requestId = GetRequestId(response);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var error = TryReadError(responseText);
+                        var status = (int)response.StatusCode;
+                        var reason =
+                            string.IsNullOrWhiteSpace(
+                                response.ReasonPhrase)
+                                ? response.StatusCode.ToString()
+                                : response.ReasonPhrase;
+                        throw new AiEndpointException(
+                            BuildHttpCode(status, reason),
+                            "The endpoint model list request failed: " +
+                            status + " " + reason + "." +
+                            RecoveryHint(status),
+                            httpStatus: status,
+                            providerCode:
+                                error?.code ?? error?.type,
+                            requestId: requestId,
+                            responseSnippet:
+                                error?.message ?? responseText);
+                    }
+
+                    ModelListResponse list;
+                    try
+                    {
+                        list = _serializer
+                            .Deserialize<ModelListResponse>(
+                                responseText);
+                    }
+                    catch (Exception exception)
+                    {
+                        throw new AiEndpointException(
+                            "MODELS_INVALID_JSON",
+                            "The endpoint returned an invalid model list.",
+                            exception,
+                            (int)response.StatusCode,
+                            requestId: requestId,
+                            responseSnippet: responseText);
+                    }
+
+                    var models = (list?.data ??
+                        new List<ModelListItem>())
+                        .Where(item =>
+                            item != null &&
+                            ModelSelectionPolicy
+                                .IsGenerativeModel(item.id))
+                        .Select(item =>
+                            TextBoundary.PlainText(item.id, 200))
+                        .Where(item => item.Length > 0)
+                        .Distinct(
+                            StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(item => item)
+                        .ToList();
+                    if (models.Count == 0)
+                    {
+                        throw new AiEndpointException(
+                            "MODELS_EMPTY",
+                            "The endpoint returned no generative model identifiers.",
+                            httpStatus:
+                                (int)response.StatusCode,
+                            requestId: requestId,
+                            responseSnippet: responseText);
+                    }
+
+                    return models;
                 }
             }
         }
@@ -239,6 +376,37 @@ namespace OutlookLocalAIChat.Chat
                 }
 
                 return builder.ToString();
+            }
+        }
+
+        private static void NormalizeToolCalls(
+            IList<ChatToolCall> toolCalls)
+        {
+            if (toolCalls == null)
+            {
+                return;
+            }
+
+            for (var index = 0;
+                 index < toolCalls.Count;
+                 index++)
+            {
+                var call = toolCalls[index];
+                if (call == null)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(call.id))
+                {
+                    call.id = "call_" +
+                        (index + 1).ToString();
+                }
+
+                if (string.IsNullOrWhiteSpace(call.type))
+                {
+                    call.type = "function";
+                }
             }
         }
 

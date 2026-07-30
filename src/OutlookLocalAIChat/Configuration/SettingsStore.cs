@@ -43,7 +43,9 @@ namespace OutlookLocalAIChat.Configuration
                 return new AppSettings
                 {
                     BaseUrl = stored.BaseUrl ?? string.Empty,
-                    Model = stored.Model ?? string.Empty,
+                    Model = string.IsNullOrWhiteSpace(stored.Model)
+                        ? ModelSelectionPolicy.RecommendedModel
+                        : stored.Model,
                     ApiKey = Unprotect(stored.ProtectedApiKey),
                     AllowInsecureHttp = stored.AllowInsecureHttp
                 };

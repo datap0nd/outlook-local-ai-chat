@@ -18,9 +18,11 @@ an external Outlook MCP server.
 5. Choose **AI Chat > Mailbox AI Chat** on the ribbon.
 6. Open **Settings** and enter:
    - the OpenAI-compatible endpoint or base URL;
-   - the model name;
+   - the model name, with `qwen3.5-35b-a3b` recommended;
    - the API key.
    - **Allow insecure HTTP** only when a non-local endpoint uses plain HTTP.
+7. Choose **Check endpoint**. Save only after authentication, the selected
+   model, and mailbox tool calling pass.
 
 Examples:
 
@@ -38,6 +40,25 @@ retrieved email context without transport encryption.
 The first unsigned build may trigger a Windows SmartScreen warning. A trusted
 code-signing certificate is required to remove that warning for normal company
 distribution.
+
+## Model choice
+
+The default is `qwen3.5-35b-a3b`. For mailbox search, context selection, and
+drafting, it is the best balance of tool-use quality, response speed, and server
+load among the commonly exposed options supported by this project.
+
+- `qwen3.5-35b-a3b`: recommended balanced default.
+- `gpt-oss-120b`: quality-first fallback when the server can absorb higher
+  latency and load.
+- `gpt-oss-20b`: speed-first fallback.
+- Other editable model IDs remain available when they support OpenAI-compatible
+  chat tool calls.
+
+The add-in does not recommend Gauss or Gausso variants. It also excludes
+embedding-only models from endpoint discovery. **Check endpoint** makes a
+harmless configuration request and requires the selected model to return one of
+the add-in's read-only mailbox tool calls. It does not execute that tool or read
+email during the check.
 
 ## Use
 
@@ -105,6 +126,11 @@ Email bodies are sent only when the model requests them through an approved
 read-only tool. The add-in does not index, upload, or transmit the entire
 mailbox automatically.
 
+The optional Settings check sends the API key to `GET /v1/models` when that route
+is available, then submits a synthetic chat request that contains no mailbox
+data. A successful check proves that authentication, the entered model, and the
+tool-call response shape work before the first real mailbox question.
+
 Nothing is sent to Microsoft 365 by the add-in. Outlook itself continues to use
 whatever mail server your organization configured.
 
@@ -121,7 +147,8 @@ Content-Type: application/json
 The request uses `model`, `messages`, `stream: false`, and standard
 OpenAI-compatible function tools. The endpoint and selected model must support
 chat-completions tool calling. The final response must provide
-`choices[0].message.content` as text.
+`choices[0].message.content` as text. `GET /v1/models` is optional. When
+available, it populates the editable model list in Settings.
 
 If a request fails, the sidebar shows diagnostic identifiers such as:
 

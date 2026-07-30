@@ -6,7 +6,8 @@ namespace OutlookLocalAIChat.Configuration
     {
         public string BaseUrl { get; set; } = string.Empty;
 
-        public string Model { get; set; } = string.Empty;
+        public string Model { get; set; } =
+            ModelSelectionPolicy.RecommendedModel;
 
         public string ApiKey { get; set; } = string.Empty;
 
@@ -84,6 +85,42 @@ namespace OutlookLocalAIChat.Configuration
                 Fragment = string.Empty
             };
 
+            endpoint = builder.Uri;
+            return true;
+        }
+
+        public static bool TryGetModelsUri(
+            string value,
+            bool allowInsecureHttp,
+            out Uri endpoint)
+        {
+            endpoint = null;
+            Uri chatEndpoint;
+            if (!TryGetChatCompletionsUri(
+                value,
+                allowInsecureHttp,
+                out chatEndpoint))
+            {
+                return false;
+            }
+
+            const string suffix = "/chat/completions";
+            var path = chatEndpoint.AbsolutePath;
+            if (!path.EndsWith(
+                suffix,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var builder = new UriBuilder(chatEndpoint)
+            {
+                Path = path.Substring(
+                    0,
+                    path.Length - suffix.Length) + "/models",
+                Query = string.Empty,
+                Fragment = string.Empty
+            };
             endpoint = builder.Uri;
             return true;
         }
