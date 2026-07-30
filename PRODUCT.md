@@ -66,6 +66,8 @@ exposes create, save, and display operations but no send operation.
 - Never render model output as HTML or execute it as code.
 - Support an OpenAI-compatible `/v1/chat/completions` endpoint.
 - Permit HTTPS endpoints and loopback HTTP endpoints for local model servers.
+- Permit non-local HTTP only after an explicit persisted opt-in that warns the
+  user that the API key and mailbox context will travel without encryption.
 - Target both 32-bit and 64-bit Office from one installer when practical.
 - A production installer should be code-signed. Signing credentials are not
   included in the repository.

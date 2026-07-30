@@ -153,7 +153,7 @@ Horizontal content padding is 14 pixels in the sidebar work areas. The toolbar u
 
 The composer is a two-column grid: a fluid multiline text field and a fixed 104-pixel action column. The send button fills the available composer height. Draft actions align to the right beneath a full-width disclosure. Long message subjects, sender metadata, and status text ellipsize rather than breaking the overall frame.
 
-The settings window is a centered modal, 520 by 365 client pixels with a 480 by 390 minimum. Endpoint, model, and API-key fields stack vertically. Data-use guidance and validation errors sit before the bottom-right Save and Cancel actions.
+The settings window is a centered modal, 520 by 455 client pixels with a 480 by 480 minimum. Endpoint, model, and API-key fields stack vertically. An explicit insecure-HTTP checkbox and transport warning follow the credential fields. Data-use guidance and validation errors sit before the bottom-right Save and Cancel actions.
 
 ### Named Rules
 
@@ -234,7 +234,8 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 ### Settings Fields and Actions
 
 - **Fields:** Endpoint, Model, and API key are stacked square inputs with bold labels and accessible descriptions. The API key uses the system password character.
-- **Disclosure:** Explain that prompts, recent conversation, and model-requested bounded mailbox context go to the configured endpoint, HTTP is loopback-only, and the key is encrypted for the current Windows user.
+- **Disclosure:** Explain that prompts, recent conversation, and model-requested bounded mailbox context go to the configured endpoint, the key is encrypted for the current Windows user, and non-local HTTP is available only through an explicit warning-bearing opt-in.
+- **Insecure HTTP:** Use a native checkbox labeled "Allow insecure HTTP for non-local endpoints." When enabled, show an adjacent text warning that the API key, prompts, and retrieved email context are sent without transport encryption.
 - **Actions:** Save is primary; Cancel is secondary. Enter activates Save and Escape activates Cancel.
 - **Errors:** Validation failures appear inline as an accessible alert without closing the modal.
 

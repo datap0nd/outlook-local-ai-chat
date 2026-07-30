@@ -20,6 +20,7 @@ an external Outlook MCP server.
    - the OpenAI-compatible endpoint or base URL;
    - the model name;
    - the API key.
+   - **Allow insecure HTTP** only when a non-local endpoint uses plain HTTP.
 
 Examples:
 
@@ -29,8 +30,10 @@ https://ai.example.test/v1/chat/completions
 http://127.0.0.1:1234/v1
 ```
 
-Remote endpoints must use HTTPS. Plain HTTP is accepted only for loopback
-addresses such as `localhost` and `127.0.0.1`.
+HTTPS is recommended. Plain HTTP is accepted automatically for loopback
+addresses such as `localhost` and `127.0.0.1`. For another HTTP host, enable
+**Allow insecure HTTP** in Settings. That opt-in sends the API key, prompts, and
+retrieved email context without transport encryption.
 
 The first unsigned build may trigger a Windows SmartScreen warning. A trusted
 code-signing certificate is required to remove that warning for normal company
@@ -203,5 +206,6 @@ GitHub Actions builds, smoke-tests, and publishes the same single-file installer
 - 32-bit or 64-bit Office on Windows
 - .NET Framework 4.8
 - OpenAI-compatible endpoint and model with tool-calling support
+- HTTPS, loopback HTTP, or explicitly enabled remote HTTP
 
 The new Outlook for Windows does not load COM add-ins.

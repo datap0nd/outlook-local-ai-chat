@@ -10,6 +10,8 @@ namespace OutlookLocalAIChat.Configuration
 
         public string ApiKey { get; set; } = string.Empty;
 
+        public bool AllowInsecureHttp { get; set; }
+
         public bool IsConfigured
         {
             get
@@ -17,11 +19,25 @@ namespace OutlookLocalAIChat.Configuration
                 Uri endpoint;
                 return Model.Trim().Length > 0 &&
                        ApiKey.Trim().Length > 0 &&
-                       TryGetChatCompletionsUri(BaseUrl, out endpoint);
+                       TryGetChatCompletionsUri(
+                           BaseUrl,
+                           AllowInsecureHttp,
+                           out endpoint);
             }
         }
 
         public static bool TryGetChatCompletionsUri(string value, out Uri endpoint)
+        {
+            return TryGetChatCompletionsUri(
+                value,
+                false,
+                out endpoint);
+        }
+
+        public static bool TryGetChatCompletionsUri(
+            string value,
+            bool allowInsecureHttp,
+            out Uri endpoint)
         {
             endpoint = null;
             Uri baseUri;
@@ -33,13 +49,13 @@ namespace OutlookLocalAIChat.Configuration
             var isHttps = baseUri.Scheme.Equals(
                 Uri.UriSchemeHttps,
                 StringComparison.OrdinalIgnoreCase);
-            var isLoopbackHttp =
+            var isAllowedHttp =
                 baseUri.Scheme.Equals(
                     Uri.UriSchemeHttp,
                     StringComparison.OrdinalIgnoreCase) &&
-                baseUri.IsLoopback;
+                (baseUri.IsLoopback || allowInsecureHttp);
 
-            if (!isHttps && !isLoopbackHttp)
+            if (!isHttps && !isAllowedHttp)
             {
                 return false;
             }

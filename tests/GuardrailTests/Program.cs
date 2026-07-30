@@ -25,6 +25,9 @@ namespace GuardrailTests
                 Run("HTTPS endpoint is accepted", HttpsEndpointIsAccepted);
                 Run("Loopback HTTP endpoint is accepted", LoopbackHttpIsAccepted);
                 Run("Remote HTTP endpoint is rejected", RemoteHttpIsRejected);
+                Run(
+                    "Remote HTTP endpoint requires explicit opt in",
+                    RemoteHttpIsAcceptedWithOptIn);
                 Run("Text boundary removes controls and truncates", TextIsBounded);
                 Run(
                     "Endpoint diagnostics expose transport details",
@@ -92,6 +95,32 @@ namespace GuardrailTests
                     "http://ai.example.test/v1",
                     out endpoint),
                 "Remote HTTP must be rejected.");
+        }
+
+        private static void RemoteHttpIsAcceptedWithOptIn()
+        {
+            Uri endpoint;
+            Assert(
+                AppSettings.TryGetChatCompletionsUri(
+                    "http://ai.example.test/v1/chat/completions",
+                    true,
+                    out endpoint),
+                "Explicitly allowed remote HTTP should be accepted.");
+            Assert(
+                endpoint.AbsoluteUri ==
+                "http://ai.example.test/v1/chat/completions",
+                "Remote HTTP endpoint was not normalized correctly.");
+
+            var settings = new AppSettings
+            {
+                BaseUrl = "http://ai.example.test/v1",
+                Model = "local-model",
+                ApiKey = "test-key",
+                AllowInsecureHttp = true
+            };
+            Assert(
+                settings.IsConfigured,
+                "Remote HTTP opt in was not honored by configuration.");
         }
 
         private static void TextIsBounded()

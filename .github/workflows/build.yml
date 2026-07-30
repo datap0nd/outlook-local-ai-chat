@@ -62,7 +62,7 @@ jobs:
         shell: pwsh
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
-            "/DAppVersion=1.1.1" `
+            "/DAppVersion=1.1.2" `
             "installer\OutlookLocalAIChat.iss"
 
       - name: Smoke-test installer registration

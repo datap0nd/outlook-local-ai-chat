@@ -44,7 +44,8 @@ namespace OutlookLocalAIChat.Configuration
                 {
                     BaseUrl = stored.BaseUrl ?? string.Empty,
                     Model = stored.Model ?? string.Empty,
-                    ApiKey = Unprotect(stored.ProtectedApiKey)
+                    ApiKey = Unprotect(stored.ProtectedApiKey),
+                    AllowInsecureHttp = stored.AllowInsecureHttp
                 };
             }
             catch
@@ -63,10 +64,11 @@ namespace OutlookLocalAIChat.Configuration
             Uri endpoint;
             if (!AppSettings.TryGetChatCompletionsUri(
                 settings.BaseUrl,
+                settings.AllowInsecureHttp,
                 out endpoint))
             {
                 throw new InvalidOperationException(
-                    "Use HTTPS, or HTTP only for localhost and 127.0.0.1.");
+                    "Use HTTPS, loopback HTTP, or explicitly allow insecure HTTP.");
             }
 
             if (settings.Model.Trim().Length == 0)
@@ -86,7 +88,8 @@ namespace OutlookLocalAIChat.Configuration
             {
                 BaseUrl = settings.BaseUrl.Trim(),
                 Model = settings.Model.Trim(),
-                ProtectedApiKey = Protect(settings.ApiKey.Trim())
+                ProtectedApiKey = Protect(settings.ApiKey.Trim()),
+                AllowInsecureHttp = settings.AllowInsecureHttp
             };
 
             File.WriteAllText(
@@ -127,6 +130,8 @@ namespace OutlookLocalAIChat.Configuration
             public string Model { get; set; }
 
             public string ProtectedApiKey { get; set; }
+
+            public bool AllowInsecureHttp { get; set; }
         }
     }
 }

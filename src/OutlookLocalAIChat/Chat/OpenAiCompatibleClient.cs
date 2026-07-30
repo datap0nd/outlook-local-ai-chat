@@ -49,6 +49,7 @@ namespace OutlookLocalAIChat.Chat
             Uri endpoint;
             if (!AppSettings.TryGetChatCompletionsUri(
                 settings.BaseUrl,
+                settings.AllowInsecureHttp,
                 out endpoint))
             {
                 throw new AiEndpointException(

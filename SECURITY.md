@@ -75,8 +75,12 @@ Any process running as the same Windows user can potentially invoke DPAPI and
 recover current-user secrets. This protects the key at rest from casual file
 inspection, not from a compromised user session.
 
-The key is sent only in the HTTPS Authorization header of the configured endpoint.
-Loopback HTTP is permitted for local model servers.
+The key is sent in the Authorization header of the configured endpoint. HTTPS
+protects that header and submitted mailbox context in transit. Loopback HTTP is
+permitted automatically for local model servers. Non-local HTTP requires an
+explicit persisted opt-in in Settings and displays a warning because the API
+key, prompts, and retrieved email context are then sent without transport
+encryption.
 
 ## Logging
 

@@ -10,6 +10,9 @@ namespace OutlookLocalAIChat.UI
         private readonly TextBox _endpoint = new TextBox();
         private readonly TextBox _model = new TextBox();
         private readonly TextBox _apiKey = new TextBox();
+        private readonly CheckBox _allowInsecureHttp =
+            new CheckBox();
+        private readonly Label _transportWarning = new Label();
         private readonly Label _error = new Label();
         private readonly SettingsStore _store;
 
@@ -19,8 +22,8 @@ namespace OutlookLocalAIChat.UI
 
             Text = "AI endpoint settings";
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(520, 365);
-            MinimumSize = new Size(480, 390);
+            ClientSize = new Size(520, 455);
+            MinimumSize = new Size(480, 480);
             MaximizeBox = false;
             MinimizeBox = false;
             ShowIcon = false;
@@ -33,7 +36,7 @@ namespace OutlookLocalAIChat.UI
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 10,
+                RowCount = 12,
                 Padding = new Padding(24, 20, 24, 20)
             };
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -43,6 +46,8 @@ namespace OutlookLocalAIChat.UI
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
@@ -50,7 +55,7 @@ namespace OutlookLocalAIChat.UI
             ConfigureField(
                 _endpoint,
                 "AI endpoint",
-                "HTTPS endpoint or loopback HTTP base URL.");
+                "HTTPS endpoint, loopback HTTP, or explicitly allowed remote HTTP.");
             ConfigureField(_model, "Model name", "Model identifier sent to the endpoint.");
             ConfigureField(_apiKey, "API key", "Encrypted for the current Windows user.");
             _apiKey.UseSystemPasswordChar = true;
@@ -62,6 +67,26 @@ namespace OutlookLocalAIChat.UI
             layout.Controls.Add(FieldLabel("API key"), 0, 4);
             layout.Controls.Add(_apiKey, 0, 5);
 
+            _allowInsecureHttp.AutoSize = true;
+            _allowInsecureHttp.Text =
+                "Allow insecure HTTP for non-local endpoints";
+            _allowInsecureHttp.AccessibleName =
+                "Allow insecure HTTP";
+            _allowInsecureHttp.AccessibleDescription =
+                "Allows the API key, prompts, and email context to be sent " +
+                "without transport encryption.";
+            _allowInsecureHttp.CheckedChanged +=
+                InsecureHttpChanged;
+            layout.Controls.Add(_allowInsecureHttp, 0, 6);
+
+            _transportWarning.AutoSize = true;
+            _transportWarning.MaximumSize = new Size(460, 0);
+            _transportWarning.AccessibleName =
+                "HTTP transport warning";
+            _transportWarning.AccessibleRole =
+                AccessibleRole.Alert;
+            layout.Controls.Add(_transportWarning, 0, 7);
+
             var hint = new Label
             {
                 AutoSize = true,
@@ -72,11 +97,11 @@ namespace OutlookLocalAIChat.UI
                 Text =
                     "Your prompt and recent conversation are sent to this endpoint. " +
                     "The model can request bounded read-only context from your local " +
-                    "Inbox and Sent Items. Use HTTPS, or HTTP only for a local endpoint. " +
+                    "Inbox and Sent Items. HTTPS is recommended. " +
                     "The key is encrypted for your Windows account.",
                 AccessibleName = "Endpoint data disclosure"
             };
-            layout.Controls.Add(hint, 0, 6);
+            layout.Controls.Add(hint, 0, 8);
 
             _error.AutoSize = true;
             _error.ForeColor = SystemInformation.HighContrast
@@ -85,7 +110,7 @@ namespace OutlookLocalAIChat.UI
             _error.Padding = new Padding(0, 10, 0, 0);
             _error.AccessibleName = "Settings error";
             _error.AccessibleRole = AccessibleRole.Alert;
-            layout.Controls.Add(_error, 0, 7);
+            layout.Controls.Add(_error, 0, 9);
 
             var buttons = new FlowLayoutPanel
             {
@@ -100,7 +125,7 @@ namespace OutlookLocalAIChat.UI
             cancel.DialogResult = DialogResult.Cancel;
             buttons.Controls.Add(save);
             buttons.Controls.Add(cancel);
-            layout.Controls.Add(buttons, 0, 9);
+            layout.Controls.Add(buttons, 0, 11);
 
             Controls.Add(layout);
             AcceptButton = save;
@@ -109,6 +134,9 @@ namespace OutlookLocalAIChat.UI
             _endpoint.Text = current?.BaseUrl ?? string.Empty;
             _model.Text = current?.Model ?? string.Empty;
             _apiKey.Text = current?.ApiKey ?? string.Empty;
+            _allowInsecureHttp.Checked =
+                current?.AllowInsecureHttp ?? false;
+            UpdateTransportWarning();
         }
 
         public AppSettings SavedSettings { get; private set; }
@@ -178,7 +206,9 @@ namespace OutlookLocalAIChat.UI
                 {
                     BaseUrl = _endpoint.Text,
                     Model = _model.Text,
-                    ApiKey = _apiKey.Text
+                    ApiKey = _apiKey.Text,
+                    AllowInsecureHttp =
+                        _allowInsecureHttp.Checked
                 };
                 _store.Save(settings);
                 SavedSettings = settings;
@@ -189,6 +219,35 @@ namespace OutlookLocalAIChat.UI
             {
                 _error.Text = exception.Message;
             }
+        }
+
+        private void InsecureHttpChanged(
+            object sender,
+            EventArgs eventArgs)
+        {
+            UpdateTransportWarning();
+        }
+
+        private void UpdateTransportWarning()
+        {
+            if (_allowInsecureHttp.Checked)
+            {
+                _transportWarning.ForeColor =
+                    SystemInformation.HighContrast
+                        ? SystemColors.HotTrack
+                        : Color.FromArgb(163, 38, 38);
+                _transportWarning.Text =
+                    "Warning: when this endpoint uses HTTP, your API key, prompts, " +
+                    "and retrieved email context are sent without transport encryption.";
+                return;
+            }
+
+            _transportWarning.ForeColor =
+                SystemInformation.HighContrast
+                    ? SystemColors.GrayText
+                    : Color.FromArgb(80, 80, 80);
+            _transportWarning.Text =
+                "Loopback HTTP remains available without this setting.";
         }
     }
 }
