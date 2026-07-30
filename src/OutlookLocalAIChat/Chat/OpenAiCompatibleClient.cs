@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -92,7 +93,9 @@ namespace OutlookLocalAIChat.Chat
                 }
                 catch (HttpRequestException exception)
                 {
-                    throw CreateNetworkException(exception);
+                    throw CreateNetworkException(
+                        exception,
+                        endpoint);
                 }
 
                 using (response)
@@ -239,7 +242,8 @@ namespace OutlookLocalAIChat.Chat
         }
 
         private static AiEndpointException CreateNetworkException(
-            HttpRequestException exception)
+            HttpRequestException exception,
+            Uri endpoint)
         {
             var webException = FindWebException(exception);
             var code = "NETWORK_REQUEST_FAILED";
@@ -274,7 +278,72 @@ namespace OutlookLocalAIChat.Chat
                 code,
                 "The AI endpoint could not be reached. Check its URL, " +
                 "network access, TLS certificate, and whether the local server is running.",
-                exception);
+                exception,
+                transportDetails: BuildTransportDetails(
+                    exception,
+                    endpoint));
+        }
+
+        private static string BuildTransportDetails(
+            Exception exception,
+            Uri endpoint)
+        {
+            var details = new List<string>();
+            if (endpoint != null)
+            {
+                details.Add(
+                    "Target " +
+                    endpoint.Scheme +
+                    "://" +
+                    endpoint.Host +
+                    ":" +
+                    endpoint.Port);
+            }
+
+            var current = exception;
+            var depth = 0;
+            while (current != null && depth < 8)
+            {
+                var item =
+                    current.GetType().Name +
+                    " HRESULT 0x" +
+                    current.HResult.ToString("X8");
+
+                var webException = current as WebException;
+                if (webException != null)
+                {
+                    item +=
+                        " WebExceptionStatus " +
+                        webException.Status;
+                }
+
+                var socketException = current as SocketException;
+                if (socketException != null)
+                {
+                    item +=
+                        " SocketError " +
+                        socketException.SocketErrorCode +
+                        " NativeError " +
+                        socketException.NativeErrorCode;
+                }
+
+                var message = TextBoundary.PlainText(
+                    current.Message,
+                    600)
+                    .Replace("\r", " ")
+                    .Replace("\n", " ")
+                    .Trim();
+                if (message.Length > 0)
+                {
+                    item += ": " + message;
+                }
+
+                details.Add(item);
+                current = current.InnerException;
+                depth++;
+            }
+
+            return string.Join(" | ", details);
         }
 
         private ChatCompletionError TryReadError(string responseText)

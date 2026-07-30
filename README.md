@@ -140,6 +140,11 @@ present, and a bounded response excerpt. The local diagnostic log records the
 operation, exception type, diagnostic code, and HRESULT without email content,
 prompts, endpoint responses, or API keys.
 
+For connection failures, the sidebar also shows the target host and port,
+exception chain, HRESULT, `WebExceptionStatus`, and Windows socket/native error
+when available. This distinguishes DNS, connection refusal, proxy, TLS, and
+timeout failures before the endpoint returns an HTTP response.
+
 ## Remove
 
 1. Close Outlook.

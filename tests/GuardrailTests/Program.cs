@@ -26,6 +26,9 @@ namespace GuardrailTests
                 Run("Loopback HTTP endpoint is accepted", LoopbackHttpIsAccepted);
                 Run("Remote HTTP endpoint is rejected", RemoteHttpIsRejected);
                 Run("Text boundary removes controls and truncates", TextIsBounded);
+                Run(
+                    "Endpoint diagnostics expose transport details",
+                    EndpointDiagnosticsExposeTransportDetails);
                 Run("Mailbox tools are read only", MailboxToolsAreReadOnly);
                 Run("Request schema exposes bounded tools", RequestSchemaIsBounded);
                 Run("Email is labeled as untrusted data", EmailIsUntrustedData);
@@ -95,6 +98,22 @@ namespace GuardrailTests
         {
             var result = TextBoundary.PlainText("a\u0000bcd", 3);
             Assert(result == "abc", "Unexpected bounded text: " + result);
+        }
+
+        private static void EndpointDiagnosticsExposeTransportDetails()
+        {
+            var exception = new AiEndpointException(
+                "NETWORK_CONNECT_FAILURE",
+                "The endpoint could not be reached.",
+                transportDetails:
+                    "SocketError ConnectionRefused NativeError 10061");
+            var diagnostic = exception.ToDiagnosticText();
+            Assert(
+                diagnostic.Contains("[NETWORK_CONNECT_FAILURE]") &&
+                diagnostic.Contains("Transport details:") &&
+                diagnostic.Contains("ConnectionRefused") &&
+                diagnostic.Contains("10061"),
+                "Transport diagnostics are incomplete: " + diagnostic);
         }
 
         private static void MailboxToolsAreReadOnly()
