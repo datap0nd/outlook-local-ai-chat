@@ -21,16 +21,17 @@ namespace OutlookLocalAIChat.Chat
             MessageSnapshot message,
             IReadOnlyList<ChatTurn> history,
             string userPrompt,
-            bool allowOneDraft = false,
-            DraftReference activeDraft = null)
+            bool allowDraftCreate = false,
+            DraftReference activeDraft = null,
+            bool allowDraftUpdate = false)
         {
             var tools = MailboxToolCatalog.CreateDefinitions();
-            if (allowOneDraft && activeDraft == null)
+            if (allowDraftCreate && activeDraft == null)
             {
                 tools.Add(
                     DraftToolCatalog.CreateDefinition());
             }
-            else if (activeDraft != null)
+            else if (allowDraftUpdate && activeDraft != null)
             {
                 tools.Add(
                     DraftToolCatalog.UpdateDefinition());
@@ -42,8 +43,8 @@ namespace OutlookLocalAIChat.Chat
                 {
                     role = "system",
                     content = BuildSystemBoundary(
-                        allowOneDraft && activeDraft == null,
-                        activeDraft != null)
+                        allowDraftCreate && activeDraft == null,
+                        allowDraftUpdate && activeDraft != null)
                 },
                 new ChatCompletionInputMessage
                 {
@@ -52,7 +53,7 @@ namespace OutlookLocalAIChat.Chat
                 }
             };
 
-            if (activeDraft != null)
+            if (allowDraftUpdate && activeDraft != null)
             {
                 messages.Add(new ChatCompletionInputMessage
                 {
@@ -100,17 +101,17 @@ namespace OutlookLocalAIChat.Chat
         }
 
         private static string BuildSystemBoundary(
-            bool allowOneDraft,
+            bool allowDraftCreate,
             bool allowDraftUpdate)
         {
-            if (allowOneDraft)
+            if (allowDraftCreate)
             {
                 return SystemBoundary +
-                    " The user explicitly authorized at most one unsent draft for " +
-                    "this request. Call create_draft only when the user asked you to " +
-                    "create or open a draft, only after gathering all needed mailbox " +
-                    "context, and as the only tool call in that response. The local " +
-                    "host consumes the authorization on the first creation attempt. " +
+                    " The local host recognized an explicit draft request in the user's " +
+                    "latest prompt and authorized at most one unsent draft attempt. Call " +
+                    "create_draft only after gathering all needed mailbox context, and as " +
+                    "the only tool call in that response. The local host consumes the " +
+                    "authorization on the first creation attempt. " +
                     "For a reply, pass the exact handle of the email being answered in " +
                     "reply_handle. Never substitute the selected or latest email. Never " +
                     "put Markdown markers in body. Use bold_phrases only for exact phrases " +
@@ -131,8 +132,9 @@ namespace OutlookLocalAIChat.Chat
             }
 
             return SystemBoundary +
-                " Draft creation is not authorized for this request. Help write draft " +
-                "text when asked, but do not claim that a draft was created.";
+                " The local host did not recognize an explicit draft or revision request " +
+                "in the user's latest prompt. Draft mutation is unavailable. Never claim " +
+                "that a draft was created or updated.";
         }
 
         public static void AppendToolExchange(

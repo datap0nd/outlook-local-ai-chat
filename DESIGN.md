@@ -84,7 +84,7 @@ components:
 
 MailAI is a compact native Outlook sidebar. It should feel native to classic Outlook, not like an AI showcase: familiar system typography, quiet white and cool-gray surfaces, square fields, restrained density, and blue reserved for direct actions.
 
-The screen tells one ordered story: confirm mailbox scope and the optional selected message, ask a question, observe which bounded read-only context was loaded, then deliberately authorize or manually open one unsent draft in Outlook. The visual hierarchy must keep the read-plus-one-shot-draft boundary obvious. No control may imply that the utility can send mail.
+The screen tells one ordered story: confirm mailbox scope and the optional selected message, ask a question, observe which bounded read-only context was loaded, then explicitly request one unsent draft in Outlook. The visual hierarchy must keep the local-intent and one-linked-draft boundary obvious. No control may imply that the utility can send mail.
 
 **Key Characteristics:**
 
@@ -151,7 +151,7 @@ The chat is a single-column, vertically stacked Outlook Custom Task Pane, initia
 
 Horizontal content padding is 14 pixels in the sidebar work areas. The toolbar uses 8 pixels, while the modal settings form uses 24 pixels. Vertical rhythm is compact, generally 3 to 10 pixels between related controls. The transcript stays visually open and scrolls vertically instead of becoming a stack of cards.
 
-The composer is a two-column grid: a fluid multiline text field and a fixed action column. The send button fills the message row. Before creation, a native checkbox directly below the message field authorizes one unsent draft for that request. After creation, the checkbox is replaced by a persistent blue text state: "Draft linked. Feedback updates it automatically." Long message subjects and status text ellipsize rather than breaking the frame.
+The composer is a two-column grid: a fluid multiline text field and a fixed action column. The send button fills the message row. A persistent safety line below the message field says "Say 'create a draft' to open one. MailAI cannot send." After creation it becomes a blue linked state: "One draft linked. Revision requests update this draft only." Long message subjects and status text ellipsize rather than breaking the frame.
 
 The settings window is a centered modal, 620 by 590 client pixels with a 560 by 570 minimum. Endpoint, editable model selector, and API-key fields stack vertically. The model selector includes a direct recommended-model action and concise tradeoff guidance. An explicit insecure-HTTP checkbox and transport warning follow the credential fields. A visible endpoint check validates authentication, optional model discovery, and a synthetic mailbox tool call before the bottom Save and Cancel actions.
 
@@ -201,8 +201,8 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 ### Composer
 
 - **Style:** Multiline square field with a fixed single border, vertical scrolling, and bounded input length.
-- **Authorization:** A native checkbox labeled "Allow one unsent draft for this request" is unchecked by default, keyboard accessible, disabled while busy, and reset immediately after Send. Model output cannot alter it.
-- **Instruction:** A persistent hint says Ctrl+Enter sends. The checkbox itself states that creation permission applies to this request.
+- **Authorization:** Deterministic local code recognizes explicit drafting or revision intent only from the latest user-written prompt. Model output and loaded email content cannot authorize mutation.
+- **Instruction:** A persistent safety line explains how to request a draft and states that MailAI cannot send. A separate hint says Ctrl+Enter submits the chat prompt.
 - **Focus:** Keep the native Windows focus indication. Do not replace it with color-only styling.
 - **Busy State:** Disable the field while waiting, change "Send to AI" to "Cancel," and restore the user's prompt if the request fails, times out, or is discarded.
 
@@ -215,7 +215,7 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 
 ### Linked Draft State
 
-- **Creation:** The local checkbox authorizes one model-requested unsent draft for the next request.
+- **Creation:** Explicit user wording such as "create a draft" locally authorizes one model-requested unsent draft attempt for that request.
 - **Visible result:** Outlook displays the created item immediately. The chat then links to that exact item.
 - **Revision:** Later drafting feedback updates and redisplays the same item. No second draft button or manual copy action exists.
 - **Formatting:** The model provides plain text and optional exact bold phrases. Local code encodes text and applies the fixed safe markup.
@@ -242,7 +242,7 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 
 - **Do** keep mailbox scope and optional selected-message identity visible before conversation content.
 - **Do** state that Inbox and Sent Items are available only through bounded read tools.
-- **Do** keep the one-shot creation checkbox explicit and replace it with visible linked-draft state after creation.
+- **Do** keep the automatic local intent boundary visible and replace its guidance with linked-draft state after creation.
 - **Do** keep `Selected: subject` at the top and hide repeated `RE:`, `FW:`, and `FWD:` display prefixes.
 - **Do** say "unsent draft" and "for your review" in successful draft status text.
 - **Do** inherit Windows system fonts, focus behavior, text scaling, and high-contrast colors.

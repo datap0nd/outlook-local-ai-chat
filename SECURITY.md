@@ -26,7 +26,7 @@ temporary handles + bounded untrusted text -> endpoint
     v
 bounded plain-text response -> Outlook custom task pane
 
-User selects one-shot draft authorization before Send
+Latest user prompt passes the local drafting-intent policy
     |
     v
 request includes create_draft + exact reply handle -> DraftToolHost -> consume once
@@ -34,7 +34,7 @@ request includes create_draft + exact reply handle -> DraftToolHost -> consume o
     v
 DraftService -> Save + Display one unsent Outlook draft
 
-Later user feedback while the draft is linked
+Later user feedback passes the local revision-intent policy
     |
     v
 request includes update_draft -> DraftToolHost -> consume once
@@ -46,16 +46,19 @@ SafeDraftHtml -> remove Markdown markers + encode text + apply bold -> Save + Di
 `OpenAiCompatibleClient` has no reference to the Outlook application object or
 `DraftService`. The mailbox host remains separate from `DraftService`. The
 dedicated draft host can reach only the internal draft service. Creation requires
-an atomic one-shot authorization created from the local checkbox. Updates are
-available only while the host retains exactly one linked draft and are limited
-to one mutation attempt per user request.
+an atomic one-request authorization created by deterministic local intent rules
+from the latest user-written prompt. Email bodies and model output do not enter
+that decision. Updates are available only for locally recognized revision intent
+while the host retains exactly one linked draft, and remain limited to one
+mutation attempt per user request.
 
 ## Enforced invariants
 
 1. The model request schema always exposes exactly `search_mailbox`,
-   `read_messages`, and `read_thread`. It exposes `create_draft` only when the
-   local one-shot checkbox was selected for that request. Once a draft is linked,
-   it exposes `update_draft` instead and never exposes both.
+   `read_messages`, and `read_thread`. It exposes `create_draft` only when local
+   code recognizes drafting intent in the latest user prompt. Once a draft is
+   linked, recognized revision intent may expose `update_draft` instead. It
+   never exposes both.
 2. `MailboxToolHost` has one public dispatcher and rejects any tool name outside
    that compile-time allowlist.
 3. Model-selected searches are limited to the primary Inbox and Sent Items.
@@ -93,6 +96,14 @@ to one mutation attempt per user request.
 
 The system prompt reinforces these limits, but no security property depends on
 the model obeying it.
+
+Classic Outlook COM add-ins do not have a permission manifest that can deny a
+`Send` scope. MailAI's guarantee is capability-based: its source and compiled
+assembly contain no Outlook `Send`, `Submit`, or send/receive invocation; its
+model tools expose no such operation; and the model client never receives the
+Outlook application object. CI scans both source and compiled IL for this
+boundary. Replacing the installed binary or compromising the Windows process is
+outside this threat model.
 
 ## Secrets
 

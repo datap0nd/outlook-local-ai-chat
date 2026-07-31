@@ -71,10 +71,11 @@ email during the check.
 3. The model can search Inbox and Sent Items, inspect selected results, and load
    a conversation thread when needed.
 4. The sidebar records which bounded context operations ran.
-5. To let the model open a draft, select **Allow one unsent draft for this
-   request**, then ask it to create a new or reply draft.
-6. The permission exists only for that request and is consumed by the first
-   creation attempt. The draft opens unsent in Outlook.
+5. Ask explicitly, for example "create a reply draft" or "write an email."
+   Local code recognizes that drafting intent and exposes one creation attempt
+   for that request. The draft opens unsent in Outlook.
+6. A mailbox question without explicit drafting language cannot expose draft
+   creation. Loaded email text and model output cannot authorize it.
 7. The same Outlook draft stays linked to that chat. Follow-up instructions such
    as "make it shorter" or "bold the deadline" update and redisplay that exact
    unsent item. No second draft is created.
@@ -92,10 +93,12 @@ scoped exception, not a general mutation permission.
 
 - Every request exposes exactly three read-only tools: `search_mailbox`,
   `read_messages`, and `read_thread`.
-- `create_draft` is added only when the local one-shot checkbox was selected.
-  Model output, prompts, and email content cannot select that checkbox.
+- `create_draft` is added only when local code recognizes an explicit drafting
+  instruction in the latest user-written prompt, such as "create a draft" or
+  "write a reply." Model output and email content never enter that decision.
 - Once one draft exists, `create_draft` disappears and only `update_draft` is
-  available. It can mutate only that linked unsent item, once per user request.
+  eligible. Local code exposes it only for a recognized revision instruction,
+  and it can mutate only that linked unsent item once per user request.
 - The draft host requires `create_draft` to be the only tool call in its model
   response, validates strict arguments, and atomically consumes permission
   before creating anything.
@@ -112,12 +115,16 @@ scoped exception, not a general mutation permission.
   service.
 - Model output is length-limited plain text displayed in a Windows control. It is
   never evaluated, executed, or rendered as HTML.
-- Only the local one-shot authorization can create the linked draft. Later
-  revisions are enabled only while that local linked-draft session exists.
+- Only a one-request authorization derived locally from explicit user drafting
+  intent can create the linked draft. Later revisions require both recognized
+  revision intent and that local linked-draft session.
 - The model-invoked mailbox host remains read-only. A separate draft host accepts
   only the bounded `create_draft` and `update_draft` operations.
 - The draft path exposes no send, move, delete, schedule, BCC, arbitrary HTML,
   or mailbox traversal operation.
+- Classic Outlook COM has no permission-manifest switch for sending. MailAI
+  instead hardcodes the absence of a send capability, keeps the Outlook object
+  outside the model client, and verifies the source plus compiled assembly in CI.
 - Drafts are saved and displayed as unsent Outlook items.
 - CI fails if forbidden Outlook action calls are introduced.
 
@@ -144,13 +151,14 @@ The model may then request:
 - up to 12 messages from one Outlook conversation;
 - at most four tool calls per round and four context-retrieval rounds.
 
-When the one-shot checkbox is selected, that request also exposes
-`create_draft`. Its bounded arguments may contain a new-message subject,
+When the latest user prompt explicitly asks to create or open a draft, local
+intent rules expose `create_draft` for that request. Its bounded arguments may
+contain a new-message subject,
 recipients, CC recipients, and body, or a reply body plus the exact temporary
 handle of a searched or selected source message. The tool can only save and
 display one unsent Outlook draft. While that draft is
-linked, later requests expose `update_draft` instead. Each update supplies the
-complete bounded plain-text body and optional exact phrases to bold. The local
+linked, a recognized revision request exposes `update_draft` instead. Each
+update supplies the complete bounded plain-text body and optional exact phrases to bold. The local
 formatter HTML-encodes all text and inserts only fixed `<strong>` and line-break
 markup. If a model mistakenly returns paired Markdown bold markers, the local
 formatter removes the markers and applies real Outlook bold formatting before

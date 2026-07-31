@@ -37,7 +37,8 @@ model name, and API key, and no model response can invoke an Outlook send action
 ## Positioning
 
 Model output can invoke only a compile-time allowlist of bounded mailbox read
-tools. `create_draft` appears only after explicit local one-shot authorization.
+tools. `create_draft` appears only when local code recognizes explicit drafting
+intent in the latest user-written prompt.
 After creation it is replaced by `update_draft`, which can modify only the one
 locally linked item. The dedicated host exposes no send operation.
 
@@ -66,8 +67,9 @@ locally linked item. The dedicated host exposes no send operation.
   selected source message. Never fall back to the latest mailbox item.
 - Never send, schedule, move, delete, mark, categorize, or modify the source email.
 - Always expose only `search_mailbox`, `read_messages`, and `read_thread`.
-  Conditionally expose `create_draft` for one locally authorized request or
-  `update_draft` while one local draft is linked, never both.
+  Conditionally expose `create_draft` for a locally recognized drafting request
+  or `update_draft` for a locally recognized revision of the one linked draft,
+  never both.
 - Reject all other model tool calls and cap calls, rounds, results, and returned
   text.
 - Never render model output as HTML or execute it as code. Draft formatting

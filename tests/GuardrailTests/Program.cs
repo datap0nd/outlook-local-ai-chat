@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -55,8 +56,8 @@ namespace GuardrailTests
                     EndpointDiagnosticsExposeTransportDetails);
                 Run("Mailbox tools are read only", MailboxToolsAreReadOnly);
                 Run(
-                    "Draft tool requires explicit authorization",
-                    DraftToolRequiresAuthorization);
+                    "Latest user prompt locally gates draft tools",
+                    DraftToolsRequireLocalIntentAuthorization);
                 Run(
                     "Draft authorization creates at most one unsent draft",
                     DraftAuthorizationCreatesOnlyOneDraft);
@@ -79,6 +80,9 @@ namespace GuardrailTests
                 Run("Email is labeled as untrusted data", EmailIsUntrustedData);
                 Run("Conversation history is bounded", HistoryIsBounded);
                 Run("Draft host exposes no send capability", DraftHasNoSend);
+                Run(
+                    "Compiled add-in contains no Outlook send invocation",
+                    CompiledAddInHasNoSendInvocation);
                 Run(
                     "Mailbox host exposes one guarded dispatcher",
                     MailboxHostHasGuardedDispatcher);
@@ -366,8 +370,29 @@ namespace GuardrailTests
                 string.Join(", ", names));
         }
 
-        private static void DraftToolRequiresAuthorization()
+        private static void DraftToolsRequireLocalIntentAuthorization()
         {
+            Assert(
+                DraftIntentPolicy.AllowsCreate(
+                    "Find the matching message and create a draft responding to it.") &&
+                DraftIntentPolicy.AllowsCreate(
+                    "Please write a reply to the selected email.") &&
+                !DraftIntentPolicy.AllowsCreate(
+                    "Summarize the latest messages in my mailbox.") &&
+                !DraftIntentPolicy.AllowsCreate(
+                    "Find the latest project update."),
+                "Draft creation intent was not classified locally and conservatively.");
+            Assert(
+                DraftIntentPolicy.AllowsUpdate(
+                    "Bolden this section and make it shorter.") &&
+                DraftIntentPolicy.AllowsUpdate(
+                    "Update the draft to be more formal.") &&
+                !DraftIntentPolicy.AllowsUpdate(
+                    "Find emails with a shorter subject.") &&
+                !DraftIntentPolicy.AllowsUpdate(
+                    "Summarize my inbox."),
+                "Draft update intent was not classified locally and conservatively.");
+
             var withoutPermission = MakeRequest(
                 new List<ChatTurn>());
             Assert(
@@ -404,7 +429,7 @@ namespace GuardrailTests
                 json.Contains("\"create_draft\"") &&
                 json.Contains("\"reply_handle\"") &&
                 json.Contains("\"additionalProperties\":false") &&
-                system.Contains("explicitly authorized") &&
+                system.Contains("local host recognized") &&
                 system.Contains("only tool call") &&
                 system.Contains("exact handle"),
                 "The authorized draft boundary is incomplete.");
@@ -417,7 +442,8 @@ namespace GuardrailTests
                     "Draft subject",
                     "recipient@example.test",
                     string.Empty,
-                    "Current body"));
+                    "Current body"),
+                true);
             Assert(
                 withLinkedDraft.tools.Any(tool =>
                     tool.function.name ==
@@ -429,6 +455,26 @@ namespace GuardrailTests
                     withLinkedDraft.messages[2]).content.Contains(
                         "<linked_draft_reference>"),
                 "A linked draft did not replace create with the bounded update tool.");
+
+            var linkedWithoutUpdateIntent = MakeRequest(
+                new List<ChatTurn>(),
+                false,
+                new DraftReference(
+                    "new",
+                    "Draft subject",
+                    "recipient@example.test",
+                    string.Empty,
+                    "Current body"),
+                false);
+            Assert(
+                !linkedWithoutUpdateIntent.tools.Any(tool =>
+                    DraftToolCatalog.IsDraftTool(
+                        tool.function.name)) &&
+                !linkedWithoutUpdateIntent.messages
+                    .OfType<ChatCompletionInputMessage>()
+                    .Any(message => message.content.Contains(
+                        "<linked_draft_reference>")),
+                "A linked draft was exposed without local update intent.");
 
             var application = new FakeOutlookApplication();
             var unauthorizedHost = new DraftToolHost(
@@ -810,6 +856,164 @@ namespace GuardrailTests
                 string.Join(", ", methods));
         }
 
+        private static void CompiledAddInHasNoSendInvocation()
+        {
+            var forbidden = new HashSet<string>(
+                new[]
+                {
+                    "Send",
+                    "SendAndReceive",
+                    "Submit"
+                },
+                StringComparer.Ordinal);
+            var violations = new List<string>();
+            foreach (var type in typeof(AddIn).Assembly.GetTypes())
+            {
+                var methods = type
+                    .GetMethods(
+                        BindingFlags.Instance |
+                        BindingFlags.Static |
+                        BindingFlags.Public |
+                        BindingFlags.NonPublic)
+                    .Cast<MethodBase>()
+                    .Concat(type.GetConstructors(
+                        BindingFlags.Instance |
+                        BindingFlags.Static |
+                        BindingFlags.Public |
+                        BindingFlags.NonPublic))
+                    .Concat(new MethodBase[]
+                    {
+                        type.TypeInitializer
+                    }.Where(item => item != null));
+                foreach (var method in methods)
+                {
+                    foreach (var value in LoadedStrings(method))
+                    {
+                        if (forbidden.Contains(value))
+                        {
+                            violations.Add(
+                                type.FullName + "." +
+                                method.Name + ":" + value);
+                        }
+                    }
+                }
+            }
+
+            Assert(
+                violations.Count == 0,
+                "Compiled Outlook send invocation found: " +
+                string.Join(", ", violations));
+        }
+
+        private static IEnumerable<string> LoadedStrings(
+            MethodBase method)
+        {
+            MethodBody body;
+            try
+            {
+                body = method.GetMethodBody();
+            }
+            catch
+            {
+                body = null;
+            }
+
+            var il = body == null
+                ? null
+                : body.GetILAsByteArray();
+            if (il == null)
+            {
+                yield break;
+            }
+
+            var oneByte = new OpCode[256];
+            var twoByte = new OpCode[256];
+            foreach (var field in typeof(OpCodes).GetFields(
+                BindingFlags.Public | BindingFlags.Static))
+            {
+                var opcode = (OpCode)field.GetValue(null);
+                var value = (ushort)opcode.Value;
+                if (value < 0x100)
+                {
+                    oneByte[value] = opcode;
+                }
+                else if ((value & 0xff00) == 0xfe00)
+                {
+                    twoByte[value & 0xff] = opcode;
+                }
+            }
+
+            var position = 0;
+            while (position < il.Length)
+            {
+                var first = il[position++];
+                var opcode = first == 0xfe
+                    ? twoByte[il[position++]]
+                    : oneByte[first];
+                if (opcode.OperandType == OperandType.InlineString)
+                {
+                    var token = BitConverter.ToInt32(
+                        il,
+                        position);
+                    position += 4;
+                    string value;
+                    try
+                    {
+                        value = method.Module.ResolveString(token);
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    yield return value;
+                    continue;
+                }
+
+                position += OperandSize(
+                    opcode.OperandType,
+                    il,
+                    position);
+            }
+        }
+
+        private static int OperandSize(
+            OperandType operandType,
+            byte[] il,
+            int position)
+        {
+            switch (operandType)
+            {
+                case OperandType.InlineNone:
+                    return 0;
+                case OperandType.ShortInlineBrTarget:
+                case OperandType.ShortInlineI:
+                case OperandType.ShortInlineVar:
+                    return 1;
+                case OperandType.InlineVar:
+                    return 2;
+                case OperandType.InlineI:
+                case OperandType.InlineBrTarget:
+                case OperandType.InlineField:
+                case OperandType.InlineMethod:
+                case OperandType.InlineSig:
+                case OperandType.InlineString:
+                case OperandType.InlineTok:
+                case OperandType.InlineType:
+                case OperandType.ShortInlineR:
+                    return 4;
+                case OperandType.InlineI8:
+                case OperandType.InlineR:
+                    return 8;
+                case OperandType.InlineSwitch:
+                    return 4 +
+                        BitConverter.ToInt32(il, position) * 4;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown IL operand type: " + operandType);
+            }
+        }
+
         private static void MailboxHostHasGuardedDispatcher()
         {
             var methods = typeof(MailboxToolHost)
@@ -952,8 +1156,9 @@ namespace GuardrailTests
 
         private static ChatCompletionRequest MakeRequest(
             IReadOnlyList<ChatTurn> history,
-            bool allowOneDraft = false,
-            DraftReference activeDraft = null)
+            bool allowDraftCreate = false,
+            DraftReference activeDraft = null,
+            bool allowDraftUpdate = false)
         {
             return ChatRequestFactory.Create(
                 "local-model",
@@ -967,8 +1172,9 @@ namespace GuardrailTests
                     "Message body"),
                 history,
                 "Help me reply.",
-                allowOneDraft,
-                activeDraft);
+                allowDraftCreate,
+                activeDraft,
+                allowDraftUpdate);
         }
 
         private static void Assert(bool condition, string message)

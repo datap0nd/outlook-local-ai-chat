@@ -7,6 +7,7 @@ $forbidden = @(
     "\.Send\s*\(",
     "\.Delete\s*\(",
     "\.Move\s*\(",
+    "\.Submit\s*\(",
     "olFolderOutbox",
     "SendAndReceive"
 )
@@ -27,6 +28,7 @@ $draftCatalogPath = Join-Path $sourceRoot "Chat\DraftToolCatalog.cs"
 $toolHostPath = Join-Path $sourceRoot "Outlook\MailboxToolHost.cs"
 $draftToolHostPath = Join-Path $sourceRoot "Outlook\DraftToolHost.cs"
 $chatPanePath = Join-Path $sourceRoot "UI\ChatPane.cs"
+$intentPath = Join-Path $sourceRoot "Security\DraftIntentPolicy.cs"
 $catalogSource = Get-Content $catalogPath -Raw
 $draftCatalogSource = Get-Content $draftCatalogPath -Raw
 $modelFacingSource =
@@ -105,7 +107,8 @@ foreach ($requiredBoundary in @(
 }
 
 $factorySource = Get-Content $factoryPath -Raw
-if (-not $factorySource.Contains("if (allowOneDraft && activeDraft == null)") -or
+if (-not $factorySource.Contains("if (allowDraftCreate && activeDraft == null)") -or
+    -not $factorySource.Contains("else if (allowDraftUpdate && activeDraft != null)") -or
     -not $factorySource.Contains("DraftToolCatalog.CreateDefinition()") -or
     -not $factorySource.Contains("DraftToolCatalog.UpdateDefinition()")) {
     throw "Draft tool exposure is not conditionally authorized."
@@ -117,11 +120,12 @@ if (-not $toolHostSource.Contains("ResolveHandle") -or
     throw "Reply drafts are not bound to request-scoped mailbox handles."
 }
 
-if (-not $chatPaneSource.Contains("_allowOneDraft.Checked") -or
-    -not $chatPaneSource.Contains("_allowOneDraft.Checked = false") -or
-    -not $chatPaneSource.Contains("hasLinkedDraft") -or
+if ($chatPaneSource.Contains("_allowOneDraft") -or
+    -not $chatPaneSource.Contains("DraftIntentPolicy.AllowsCreate(prompt)") -or
+    -not $chatPaneSource.Contains("DraftIntentPolicy.AllowsUpdate(prompt)") -or
+    -not (Test-Path $intentPath) -or
     -not $chatPaneSource.Contains("UpdateDraftState()")) {
-    throw "Sidebar one-shot draft authorization is incomplete."
+    throw "Automatic local draft-intent authorization is incomplete."
 }
 
 $draftPath = Join-Path $sourceRoot "Outlook\DraftService.cs"

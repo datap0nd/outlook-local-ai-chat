@@ -82,8 +82,6 @@ namespace OutlookLocalAIChat.UI
         private readonly RichTextBox _transcript =
             new RichTextBox();
         private readonly TextBox _composer = new TextBox();
-        private readonly CheckBox _allowOneDraft =
-            new CheckBox();
         private readonly Label _scopeTitle = new Label();
         private readonly Label _scopeMeta = new Label();
         private readonly Label _modelMeta = new Label();
@@ -392,7 +390,7 @@ namespace OutlookLocalAIChat.UI
                 TextBoundary.MaxUserPromptCharacters;
             _composer.AccessibleName = "Message to AI";
             _composer.AccessibleDescription =
-                "Ask about the mailbox or request draft text. Control Enter sends.";
+                "Ask about the mailbox or request draft text. Control Enter submits the prompt.";
             _composer.KeyDown += ComposerKeyDown;
 
             ConfigurePrimaryButton(_send, "Send to AI");
@@ -400,30 +398,19 @@ namespace OutlookLocalAIChat.UI
             _send.Margin = new Padding(8, 0, 0, 0);
             _send.Click += SendClick;
 
-            _allowOneDraft.AutoSize = true;
-            _allowOneDraft.Text =
-                "Allow one unsent draft for this request";
-            _allowOneDraft.ForeColor = TextPrimary;
-            _allowOneDraft.Padding = new Padding(0, 3, 0, 0);
-            _allowOneDraft.AccessibleName =
-                "Allow one unsent draft";
-            _allowOneDraft.AccessibleDescription =
-                "Adds one create-draft capability to the next AI request. " +
-                "The permission resets after Send and cannot send email.";
-            _allowOneDraft.CheckedChanged +=
-                DraftAuthorizationChanged;
-
-            _draftState.AutoSize = true;
+            _draftState.AutoSize = false;
+            _draftState.AutoEllipsis = true;
+            _draftState.Dock = DockStyle.Fill;
             _draftState.Text =
-                "Draft linked. Feedback updates it automatically.";
-            _draftState.ForeColor = OutlookBlue;
+                "Say 'create a draft' to open one. MailAI cannot send.";
+            _draftState.ForeColor = TextSecondary;
             _draftState.Font = new Font(
                 Font.FontFamily,
                 Math.Max(8F, Font.Size - 1F),
-                FontStyle.Bold);
+                FontStyle.Regular);
             _draftState.Padding = new Padding(0, 3, 0, 0);
-            _draftState.Visible = false;
-            _draftState.AccessibleName = "Linked draft status";
+            _draftState.Visible = true;
+            _draftState.AccessibleName = "Draft safety status";
 
             var hint = new Label
             {
@@ -434,7 +421,7 @@ namespace OutlookLocalAIChat.UI
                     Math.Max(8F, Font.Size - 1F),
                     FontStyle.Regular),
                 Text =
-                    "Ctrl+Enter sends.",
+                    "Ctrl+Enter submits prompt.",
                 Padding = new Padding(0, 3, 0, 0)
             };
 
@@ -445,7 +432,6 @@ namespace OutlookLocalAIChat.UI
                 Dock = DockStyle.Fill,
                 BackColor = SurfaceMuted
             };
-            draftMode.Controls.Add(_allowOneDraft);
             draftMode.Controls.Add(_draftState);
             panel.Controls.Add(draftMode, 0, 1);
             panel.SetColumnSpan(draftMode, 2);
@@ -518,10 +504,10 @@ namespace OutlookLocalAIChat.UI
                 _draftTools.HasActiveDraft;
             var draftAuthorization =
                 new OneShotDraftAuthorization(
-                    _allowOneDraft.Checked &&
-                    !hasLinkedDraft,
-                    hasLinkedDraft);
-            _allowOneDraft.Checked = false;
+                    !hasLinkedDraft &&
+                    DraftIntentPolicy.AllowsCreate(prompt),
+                    hasLinkedDraft &&
+                    DraftIntentPolicy.AllowsUpdate(prompt));
             var transcriptStart = _transcript.TextLength;
             AppendTurn("You", prompt, OutlookBlue);
             _composer.Clear();
@@ -561,14 +547,13 @@ namespace OutlookLocalAIChat.UI
                     SetStatus(
                         draftAuthorization.CanUpdate
                             ? "The linked draft update did not complete. This request cannot retry it."
-                            : "Draft creation did not complete. The one-shot permission is consumed.",
+                            : "Draft creation did not complete. This request cannot retry it.",
                         true);
                 }
                 else if (draftAuthorization.CanCreate)
                 {
                     SetStatus(
-                        "Response received without creating a draft. " +
-                        "The one-shot permission expired.",
+                        "Draft request recognized, but no Outlook draft was created.",
                         false);
                 }
                 else
@@ -576,7 +561,7 @@ namespace OutlookLocalAIChat.UI
                     SetStatus(
                         hasLinkedDraft
                             ? "Response received. The linked draft was unchanged."
-                            : "Response received. Draft creation was not authorized.",
+                            : "Response received. Say 'create a draft' when you want one opened.",
                         false);
                 }
             }
@@ -612,13 +597,17 @@ namespace OutlookLocalAIChat.UI
             OneShotDraftAuthorization draftAuthorization,
             CancellationToken cancellationToken)
         {
+            var activeDraft = draftAuthorization.CanUpdate
+                ? _draftTools?.ActiveDraft
+                : null;
             var request = ChatRequestFactory.Create(
                 _settings.Model,
                 selectedMessage,
                 _history,
                 prompt,
                 draftAuthorization.CanCreate,
-                _draftTools?.ActiveDraft);
+                activeDraft,
+                draftAuthorization.CanUpdate);
             var mailboxTools = new MailboxToolHost(
                 _outlookApplication,
                 selectedMessage);
@@ -711,7 +700,6 @@ namespace OutlookLocalAIChat.UI
             _draftTools = _outlookApplication == null
                 ? null
                 : new DraftToolHost(_outlookApplication);
-            _allowOneDraft.Checked = false;
             _transcript.Clear();
             ShowWelcome();
             UpdateDraftState();
@@ -861,7 +849,6 @@ namespace OutlookLocalAIChat.UI
             _busy = busy;
             _send.Text = busy ? "Cancel" : "Send to AI";
             _composer.Enabled = !busy;
-            _allowOneDraft.Enabled = !busy;
             _refresh.Enabled = !busy;
             _newChat.Enabled = !busy;
             _settingsButton.Enabled = !busy;
@@ -878,9 +865,25 @@ namespace OutlookLocalAIChat.UI
             var linked =
                 _draftTools != null &&
                 _draftTools.HasActiveDraft;
-            _allowOneDraft.Visible = !linked;
-            _allowOneDraft.Enabled = !linked && !_busy;
-            _draftState.Visible = linked;
+            _draftState.Text = linked
+                ? "One draft linked. Revision requests update this draft only."
+                : "Say 'create a draft' to open one. MailAI cannot send.";
+            _draftState.ForeColor = linked
+                ? OutlookBlue
+                : TextSecondary;
+            var style = linked
+                ? FontStyle.Bold
+                : FontStyle.Regular;
+            if (_draftState.Font.Style != style)
+            {
+                var previousFont = _draftState.Font;
+                _draftState.Font = new Font(
+                    Font.FontFamily,
+                    Math.Max(8F, Font.Size - 1F),
+                    style);
+                previousFont.Dispose();
+            }
+            _draftState.Visible = true;
         }
 
         private void SetStatus(string text, bool error)
@@ -929,28 +932,12 @@ namespace OutlookLocalAIChat.UI
                 "Try:\n" +
                 "- Summarize what needs a reply this week.\n" +
                 "- Find decisions about a project or topic.\n" +
-                "- Allow one draft, then ask to open a concise reply.\n" +
+                "- Find a message and create a concise reply draft.\n" +
                 "- Once it opens, ask to shorten it or bold an exact section.",
                 TextSecondary,
                 FontStyle.Regular);
             _transcript.SelectionStart = 0;
             _transcript.ScrollToCaret();
-        }
-
-        private void DraftAuthorizationChanged(
-            object sender,
-            EventArgs eventArgs)
-        {
-            if (_busy)
-            {
-                return;
-            }
-
-            SetStatus(
-                _allowOneDraft.Checked
-                    ? "One unsent draft is authorized for the next request only."
-                    : "Draft creation is not authorized for the next request.",
-                false);
         }
 
         private void ComposerKeyDown(
