@@ -28,6 +28,9 @@ namespace OutlookLocalAIChat.UI
     [ClassInterface(ClassInterfaceType.AutoDispatch)]
     public sealed class ChatPane : UserControl
     {
+        private const int WorkingSetExpandedHeight = 322;
+        private const int WorkingSetCollapsedHeight = 36;
+
         private static Color OutlookBlue
         {
             get
@@ -90,6 +93,12 @@ namespace OutlookLocalAIChat.UI
         private readonly Label _draftState = new Label();
         private readonly Label _status = new Label();
         private readonly Button _send = new Button();
+        private readonly Panel _workingSetLayer = new Panel();
+        private readonly Label _workingSetHeading = new Label();
+        private readonly FlowLayoutPanel _workingSetCards =
+            new FlowLayoutPanel();
+        private TableLayoutPanel _rootLayout;
+        private Button _workingSetToggle;
         private Button _refresh;
         private Button _newChat;
         private Button _settingsButton;
@@ -101,6 +110,7 @@ namespace OutlookLocalAIChat.UI
         private CancellationTokenSource _requestCancellation;
         private bool _busy;
         private bool _shutdown;
+        private bool _workingSetExpanded = true;
 
         public ChatPane()
         {
@@ -170,6 +180,7 @@ namespace OutlookLocalAIChat.UI
             catch (Exception exception)
             {
                 _workingMessages.Clear();
+                HideWorkingSetLayer();
                 _selectedMessage = null;
                 SetScopeUnavailable(
                     "No selected email. Mailbox search is still available.");
@@ -237,6 +248,7 @@ namespace OutlookLocalAIChat.UI
                     return;
                 case LocalSearchCommandKind.Clear:
                     _workingMessages.Clear();
+                    HideWorkingSetLayer();
                     _selectedMessage = null;
                     SetScopeUnavailable(
                         "No working set. Use /search or select email in Outlook.");
@@ -333,49 +345,212 @@ namespace OutlookLocalAIChat.UI
                 "Working set: " +
                 _workingMessages.Count +
                 " of 5 emails";
+            ShowWorkingSetLayer(
+                source,
+                _workingMessages);
             AppendContext(
-                BuildWorkingSetSummary(source, _workingMessages));
+                TextBoundary.SingleLine(source, 260) +
+                ". The five-email context layer is ready. " +
+                "Search again to replace it if needed.");
             SetStatus(
                 "Working set ready. Run /search again to replace it, or ask MailAI to work on these emails.",
                 false);
         }
 
-        private static string BuildWorkingSetSummary(
+        private void ShowWorkingSetLayer(
             string source,
             IReadOnlyList<MessageSnapshot> messages)
         {
-            var lines = new List<string>
-            {
+            ClearWorkingSetCards();
+            _workingSetHeading.Text =
+                "Working set - " +
+                messages.Count +
+                (messages.Count == 1
+                    ? " email"
+                    : " emails");
+            _workingSetHeading.AccessibleDescription =
                 TextBoundary.SingleLine(source, 260) +
-                ". These are the only emails available to the next AI request:"
-            };
+                ". Only these emails can be read while this working set is active.";
             for (var index = 0; index < messages.Count; index++)
             {
-                var message = messages[index];
-                var sender = TextBoundary.SingleLine(
-                    message.Sender,
-                    120);
-                var subject = TextBoundary.SingleLine(
-                    SubjectDisplay.Clean(message.Subject),
-                    180);
-                lines.Add(
-                    (index + 1) + ". " +
-                    (message.ReceivedAt?.ToString("yyyy-MM-dd HH:mm") ??
-                        "Unknown date") +
-                    " | " +
-                    (sender.Length > 0
-                        ? sender
-                        : "Unknown sender") +
-                    " | " +
-                    (subject.Length > 0
-                        ? subject
-                        : "(No subject)"));
+                _workingSetCards.Controls.Add(
+                    BuildWorkingSetCard(
+                        index,
+                        messages[index]));
             }
 
-            lines.Add(
-                "If these are wrong, refine the query and run /search again. " +
-                "Bodies are not sent until a normal prompt needs them.");
-            return string.Join(Environment.NewLine, lines);
+            _workingSetExpanded = true;
+            _workingSetCards.Visible = true;
+            _workingSetToggle.Text = "Hide";
+            _workingSetToggle.AccessibleName =
+                "Hide working set";
+            _workingSetLayer.Visible = true;
+            SetWorkingSetRowHeight(
+                WorkingSetExpandedHeight);
+            ResizeWorkingSetCards();
+        }
+
+        private Control BuildWorkingSetCard(
+            int index,
+            MessageSnapshot message)
+        {
+            var subject = TextBoundary.SingleLine(
+                SubjectDisplay.Clean(message.Subject),
+                180);
+            if (subject.Length == 0)
+            {
+                subject = "(No subject)";
+            }
+
+            var sender = TextBoundary.SingleLine(
+                message.Sender,
+                120);
+            if (sender.Length == 0)
+            {
+                sender = "Unknown sender";
+            }
+
+            var date = message.ReceivedAt?.ToString(
+                "yyyy-MM-dd HH:mm") ??
+                "Unknown date";
+            var card = new Panel
+            {
+                Height = 50,
+                Margin = new Padding(0, 0, 0, 5),
+                Padding = new Padding(8, 4, 8, 4),
+                BackColor = SystemColors.Window,
+                BorderStyle = BorderStyle.FixedSingle,
+                AccessibleName =
+                    "Email " +
+                    (index + 1) +
+                    ": " +
+                    subject,
+                AccessibleDescription =
+                    sender + ", " + date
+            };
+            var grid = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 2,
+                BackColor = SystemColors.Window,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            grid.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Absolute, 28));
+            grid.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Percent, 100));
+            grid.RowStyles.Add(
+                new RowStyle(SizeType.Percent, 52));
+            grid.RowStyles.Add(
+                new RowStyle(SizeType.Percent, 48));
+
+            var number = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = (index + 1).ToString(),
+                TextAlign = ContentAlignment.TopLeft,
+                ForeColor = OutlookBlue,
+                Font = new Font(
+                    Font.FontFamily,
+                    Font.Size,
+                    FontStyle.Bold)
+            };
+            var subjectLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = subject,
+                AutoEllipsis = true,
+                ForeColor = TextPrimary,
+                Font = new Font(
+                    Font.FontFamily,
+                    Font.Size,
+                    FontStyle.Bold)
+            };
+            var metadata = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = sender + " | " + date,
+                AutoEllipsis = true,
+                ForeColor = TextSecondary,
+                Font = new Font(
+                    Font.FontFamily,
+                    Math.Max(8F, Font.Size - 1F),
+                    FontStyle.Regular)
+            };
+            grid.Controls.Add(number, 0, 0);
+            grid.SetRowSpan(number, 2);
+            grid.Controls.Add(subjectLabel, 1, 0);
+            grid.Controls.Add(metadata, 1, 1);
+            card.Controls.Add(grid);
+            return card;
+        }
+
+        private void WorkingSetToggleClick(
+            object sender,
+            EventArgs eventArgs)
+        {
+            SetWorkingSetExpanded(
+                !_workingSetExpanded);
+        }
+
+        private void SetWorkingSetExpanded(bool expanded)
+        {
+            _workingSetExpanded = expanded;
+            _workingSetCards.Visible = expanded;
+            _workingSetToggle.Text =
+                expanded ? "Hide" : "Show";
+            _workingSetToggle.AccessibleName =
+                (expanded ? "Hide" : "Show") +
+                " working set";
+            SetWorkingSetRowHeight(
+                expanded
+                    ? WorkingSetExpandedHeight
+                    : WorkingSetCollapsedHeight);
+        }
+
+        private void ResizeWorkingSetCards()
+        {
+            var width = Math.Max(
+                120,
+                _workingSetCards.ClientSize.Width -
+                SystemInformation.VerticalScrollBarWidth -
+                2);
+            foreach (Control card in
+                _workingSetCards.Controls)
+            {
+                card.Width = width;
+            }
+        }
+
+        private void HideWorkingSetLayer()
+        {
+            ClearWorkingSetCards();
+            _workingSetLayer.Visible = false;
+            SetWorkingSetRowHeight(0);
+        }
+
+        private void ClearWorkingSetCards()
+        {
+            while (_workingSetCards.Controls.Count > 0)
+            {
+                var card = _workingSetCards.Controls[0];
+                _workingSetCards.Controls.RemoveAt(0);
+                card.Dispose();
+            }
+        }
+
+        private void SetWorkingSetRowHeight(float height)
+        {
+            if (_rootLayout == null ||
+                _rootLayout.RowStyles.Count < 3)
+            {
+                return;
+            }
+
+            _rootLayout.RowStyles[2].Height = height;
+            _rootLayout.PerformLayout();
         }
 
         internal void Shutdown()
@@ -411,25 +586,78 @@ namespace OutlookLocalAIChat.UI
 
         private void BuildLayout()
         {
-            var root = new TableLayoutPanel
+            _rootLayout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 5,
+                RowCount = 6,
                 Padding = new Padding(0)
             };
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 154));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
+            _rootLayout.RowStyles.Add(
+                new RowStyle(SizeType.Absolute, 92));
+            _rootLayout.RowStyles.Add(
+                new RowStyle(SizeType.Absolute, 38));
+            _rootLayout.RowStyles.Add(
+                new RowStyle(SizeType.Absolute, 0));
+            _rootLayout.RowStyles.Add(
+                new RowStyle(SizeType.Percent, 100));
+            _rootLayout.RowStyles.Add(
+                new RowStyle(SizeType.Absolute, 154));
+            _rootLayout.RowStyles.Add(
+                new RowStyle(SizeType.Absolute, 64));
 
-            root.Controls.Add(BuildHeader(), 0, 0);
-            root.Controls.Add(BuildToolbar(), 0, 1);
-            root.Controls.Add(BuildTranscript(), 0, 2);
-            root.Controls.Add(BuildComposer(), 0, 3);
-            root.Controls.Add(BuildStatusArea(), 0, 4);
-            Controls.Add(root);
+            _rootLayout.Controls.Add(BuildHeader(), 0, 0);
+            _rootLayout.Controls.Add(BuildToolbar(), 0, 1);
+            _rootLayout.Controls.Add(BuildWorkingSetLayer(), 0, 2);
+            _rootLayout.Controls.Add(BuildTranscript(), 0, 3);
+            _rootLayout.Controls.Add(BuildComposer(), 0, 4);
+            _rootLayout.Controls.Add(BuildStatusArea(), 0, 5);
+            Controls.Add(_rootLayout);
+        }
+
+        private Control BuildWorkingSetLayer()
+        {
+            _workingSetLayer.Dock = DockStyle.Fill;
+            _workingSetLayer.BackColor = SurfaceMuted;
+            _workingSetLayer.Padding = new Padding(14, 0, 14, 8);
+            _workingSetLayer.Visible = false;
+            _workingSetLayer.AccessibleName =
+                "Selected email working set";
+
+            var header = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = WorkingSetCollapsedHeight,
+                BackColor = SurfaceMuted
+            };
+            _workingSetHeading.Dock = DockStyle.Fill;
+            _workingSetHeading.TextAlign =
+                ContentAlignment.MiddleLeft;
+            _workingSetHeading.Font = new Font(
+                Font.FontFamily,
+                Font.Size,
+                FontStyle.Bold);
+            _workingSetHeading.ForeColor = TextPrimary;
+
+            _workingSetToggle = MakeLinkButton("Hide", 52);
+            _workingSetToggle.Dock = DockStyle.Right;
+            _workingSetToggle.Click += WorkingSetToggleClick;
+            header.Controls.Add(_workingSetHeading);
+            header.Controls.Add(_workingSetToggle);
+
+            _workingSetCards.Dock = DockStyle.Fill;
+            _workingSetCards.AutoScroll = true;
+            _workingSetCards.FlowDirection =
+                FlowDirection.TopDown;
+            _workingSetCards.WrapContents = false;
+            _workingSetCards.Padding = new Padding(0, 0, 0, 4);
+            _workingSetCards.BackColor = SurfaceMuted;
+            _workingSetCards.Resize +=
+                (sender, args) => ResizeWorkingSetCards();
+
+            _workingSetLayer.Controls.Add(_workingSetCards);
+            _workingSetLayer.Controls.Add(header);
+            return _workingSetLayer;
         }
 
         private Control BuildHeader()
@@ -698,6 +926,11 @@ namespace OutlookLocalAIChat.UI
                     DraftIntentPolicy.AllowsUpdate(prompt));
             var transcriptStart = _transcript.TextLength;
             AppendTurn("You", prompt, OutlookBlue);
+            if (_workingMessages.Count > 0 &&
+                _workingSetExpanded)
+            {
+                SetWorkingSetExpanded(false);
+            }
             _composer.Clear();
             SetBusy(true);
             _requestCancellation =
@@ -889,6 +1122,7 @@ namespace OutlookLocalAIChat.UI
 
             _history.Clear();
             _workingMessages.Clear();
+            HideWorkingSetLayer();
             _draftTools?.Dispose();
             _draftTools = _outlookApplication == null
                 ? null
@@ -996,20 +1230,67 @@ namespace OutlookLocalAIChat.UI
             _transcript.SelectionColor = headingColor;
             _transcript.AppendText(
                 speaker + Environment.NewLine);
-            _transcript.SelectionFont = new Font(
-                SystemFonts.MessageBoxFont.FontFamily,
-                SystemFonts.MessageBoxFont.Size + 1F,
-                FontStyle.Regular);
-            _transcript.SelectionColor = TextPrimary;
+            if (speaker == "Assistant")
+            {
+                AppendFormattedAssistantText(text);
+            }
+            else
+            {
+                SetTranscriptBodyStyle(FontStyle.Regular);
+                _transcript.AppendText(
+                    TextBoundary.PlainText(
+                        text,
+                        TextBoundary.MaxUserPromptCharacters));
+            }
+
+            SetTranscriptBodyStyle(FontStyle.Regular);
             _transcript.AppendText(
-                TextBoundary.PlainText(
-                    text,
-                    speaker == "You"
-                        ? TextBoundary.MaxUserPromptCharacters
-                        : TextBoundary.MaxAssistantCharacters) +
                 Environment.NewLine +
                 Environment.NewLine);
             ScrollTranscript();
+        }
+
+        private void AppendFormattedAssistantText(string text)
+        {
+            var formatted = SafeModelText.Format(
+                text,
+                TextBoundary.MaxAssistantCharacters);
+            var position = 0;
+            foreach (var range in formatted.BoldRanges)
+            {
+                if (range.Start > position)
+                {
+                    SetTranscriptBodyStyle(
+                        FontStyle.Regular);
+                    _transcript.AppendText(
+                        formatted.PlainText.Substring(
+                            position,
+                            range.Start - position));
+                }
+
+                SetTranscriptBodyStyle(FontStyle.Bold);
+                _transcript.AppendText(
+                    formatted.PlainText.Substring(
+                        range.Start,
+                        range.Length));
+                position = range.Start + range.Length;
+            }
+
+            if (position < formatted.PlainText.Length)
+            {
+                SetTranscriptBodyStyle(FontStyle.Regular);
+                _transcript.AppendText(
+                    formatted.PlainText.Substring(position));
+            }
+        }
+
+        private void SetTranscriptBodyStyle(FontStyle style)
+        {
+            _transcript.SelectionFont = new Font(
+                SystemFonts.MessageBoxFont.FontFamily,
+                SystemFonts.MessageBoxFont.Size + 1F,
+                style);
+            _transcript.SelectionColor = TextPrimary;
         }
 
         private void ScrollTranscript()
@@ -1097,6 +1378,7 @@ namespace OutlookLocalAIChat.UI
         private void SetSelectedMessage(MessageSnapshot message)
         {
             _workingMessages.Clear();
+            HideWorkingSetLayer();
             _selectedMessage = message ??
                 throw new ArgumentNullException(nameof(message));
             _scopeTitle.Text = "MailAI";

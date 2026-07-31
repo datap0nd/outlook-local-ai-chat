@@ -73,6 +73,7 @@
     <Compile Include="Security\DraftIntentPolicy.cs" />
     <Compile Include="Security\TextBoundary.cs" />
     <Compile Include="Security\OneShotDraftAuthorization.cs" />
+    <Compile Include="Security\SafeModelText.cs" />
     <Compile Include="UI\ChatPane.cs" />
     <Compile Include="UI\SettingsWindow.cs" />
     <Compile Include="UI\SubjectDisplay.cs" />

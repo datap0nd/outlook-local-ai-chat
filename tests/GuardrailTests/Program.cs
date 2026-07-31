@@ -52,6 +52,9 @@ namespace GuardrailTests
                     ToolCallResponseIsNormalized);
                 Run("Text boundary removes controls and truncates", TextIsBounded);
                 Run(
+                    "Model emphasis becomes native formatting",
+                    ModelEmphasisIsNormalized);
+                Run(
                     "Endpoint diagnostics expose transport details",
                     EndpointDiagnosticsExposeTransportDetails);
                 Run("Mailbox tools are read only", MailboxToolsAreReadOnly);
@@ -335,6 +338,26 @@ namespace GuardrailTests
         {
             var result = TextBoundary.PlainText("a\u0000bcd", 3);
             Assert(result == "abc", "Unexpected bounded text: " + result);
+        }
+
+        private static void ModelEmphasisIsNormalized()
+        {
+            var formatted = SafeModelText.Format(
+                "**Decision** and *deadline*\n" +
+                "* First action\n" +
+                "Unmatched * marker and 2*3",
+                TextBoundary.MaxAssistantCharacters);
+            Assert(
+                formatted.PlainText ==
+                    "Decision and deadline\n" +
+                    "- First action\n" +
+                    "Unmatched  marker and 2*3" &&
+                formatted.BoldRanges.Count == 2 &&
+                formatted.BoldRanges[0].Start == 0 &&
+                formatted.BoldRanges[0].Length == 8 &&
+                formatted.BoldRanges[1].Start == 13 &&
+                formatted.BoldRanges[1].Length == 8,
+                "Model formatting markers were not safely normalized.");
         }
 
         private static void EndpointDiagnosticsExposeTransportDetails()
@@ -655,7 +678,7 @@ namespace GuardrailTests
                     "draft-1",
                     "{\"kind\":\"new\"," +
                     "\"body\":\"Hello\"," +
-                    "\"subject\":\"Subject\\nInjected\"," +
+                    "\"subject\":\"**Subject**\\nInjected\"," +
                     "\"to\":\"one@example.test\\ntwo@example.test\"}"),
                 null,
                 authorization,
@@ -872,15 +895,19 @@ namespace GuardrailTests
                 "Draft HTML did not encode untrusted markup: " + html);
 
             var markdown = SafeDraftHtml.FormatContent(
-                "Hello **Target contact**\n* Next step\n__Important__",
+                "Hello **Target contact**\n* Next step\n__Important__\n" +
+                "*Deadline* and stray * marker",
                 new string[0]);
             Assert(
                 markdown.PlainText ==
-                    "Hello Target contact\n- Next step\nImportant" &&
+                    "Hello Target contact\n- Next step\nImportant\n" +
+                    "Deadline and stray  marker" &&
                 markdown.Html.Contains(
                     "Hello <strong>Target contact</strong>") &&
                 markdown.Html.Contains(
                     "<strong>Important</strong>") &&
+                markdown.Html.Contains(
+                    "<strong>Deadline</strong>") &&
                 !markdown.Html.Contains("**") &&
                 !markdown.Html.Contains("__") &&
                 !markdown.Html.Contains("<script>"),

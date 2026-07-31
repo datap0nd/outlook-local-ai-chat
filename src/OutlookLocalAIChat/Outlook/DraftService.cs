@@ -169,8 +169,11 @@ namespace OutlookLocalAIChat.Outlook
 
             if (subject != null)
             {
-                mail.Subject = TextBoundary.SingleLine(
+                var formattedSubject = SafeModelText.Format(
                     subject,
+                    255);
+                mail.Subject = TextBoundary.SingleLine(
+                    formattedSubject.PlainText,
                     255);
             }
 

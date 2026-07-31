@@ -143,11 +143,11 @@ The palette is mostly Windows system color roles, with a fixed Outlook-adjacent 
 
 **The System Font Rule.** Use `SystemFonts.MessageBoxFont` and relative size adjustments. Do not bundle a custom font or pin typography in a way that defeats Windows text scaling.
 
-**The Plain-Text Rule.** Transcript content is plain text only. Do not render model output as HTML, rich cards, markdown actions, links, or executable affordances.
+**The Safe-Rich-Text Rule.** Transcript content remains bounded plain text. A local parser may apply native RichTextBox bold to bounded character ranges after removing Markdown emphasis markers. Do not render HTML, Markdown actions, links, or executable affordances.
 
 ## Layout
 
-The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 92 pixels high and includes either the selected subject or five-email working-set count plus the exact active model, followed by a compact 38-pixel toolbar. The transcript consumes all remaining flexible height. The 154-pixel composer band and 64-pixel status band remain anchored at the bottom.
+The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 92 pixels high and includes either the selected subject or five-email working-set count plus the exact active model, followed by a compact 38-pixel toolbar. When active, a collapsible 322-pixel review layer appears above the transcript so all five compact email blocks are visible together at normal Windows text scale. The transcript consumes all remaining flexible height. The 154-pixel composer band and 64-pixel status band remain anchored at the bottom.
 
 Horizontal content padding is 14 pixels in the sidebar work areas. The toolbar uses 8 pixels, while the modal settings form uses 24 pixels. Vertical rhythm is compact, generally 3 to 10 pixels between related controls. The transcript stays visually open and scrolls vertically instead of becoming a stack of cards.
 
@@ -195,9 +195,15 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 
 - **Character:** A spacious, read-only plain-text document.
 - **Structure:** Borderless white surface with vertical scrolling and no automatic URL detection.
-- **Turns:** Speaker names are bold. "You" uses the action color; "Assistant" uses primary text. Context-loading entries are italic secondary text and endpoint errors use explicit diagnostic codes.
-- **Working-set review:** `/search` results and imported multi-selections are listed as date, sender, and subject before any normal prompt can load bodies. The copy tells the user to search again if the set is wrong.
+- **Turns:** Speaker names are bold. "You" uses the action color; "Assistant" uses primary text. Model emphasis markers are removed and represented as native bold spans. Context-loading entries are italic secondary text and endpoint errors use explicit diagnostic codes.
 - **Accessibility:** Accessible name is "MailAI conversation"; the description identifies it as a plain-text mailbox conversation and context-loading ledger.
+
+### Working-Set Layer
+
+- **Structure:** A quiet bordered layer between the toolbar and transcript contains a bold count, a Show or Hide action, and up to five separate email blocks.
+- **Email blocks:** Each block presents a blue ordinal, bold subject, sender, and received date. Long text ellipsizes. The blocks are informational, not clickable, and the layer scrolls vertically when needed.
+- **State:** `/search` and Outlook multi-selection replace the complete card set and open the review layer. Search failure preserves the previous cards. Sending a normal AI prompt collapses the layer to its count header so the transcript regains space. `/search clear`, a single selected email, and New chat remove the layer.
+- **Accessibility:** The layer and every email block expose names and descriptions. The Show or Hide action remains keyboard reachable and never relies on color alone.
 
 ### Composer
 
@@ -219,7 +225,7 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 - **Creation:** Explicit user wording such as "create a draft" locally authorizes one model-requested unsent draft attempt for that request.
 - **Visible result:** Outlook displays the created item immediately. The chat then links to that exact item.
 - **Revision:** Later drafting feedback updates and redisplays the same item. No second draft button or manual copy action exists.
-- **Formatting:** The model provides plain text and optional exact bold phrases. Local code encodes text and applies the fixed safe markup.
+- **Formatting:** The model provides plain text and optional exact bold phrases. Shared local code removes emphasis notation, then encodes text and applies fixed safe bold markup.
 - **Boundary:** No send, schedule, move, delete, mark, categorize, BCC, arbitrary HTML, or source-message modification action belongs in this component family.
 
 ### Status Band

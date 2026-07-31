@@ -19,21 +19,24 @@ namespace OutlookLocalAIChat.Outlook
             string body,
             IReadOnlyList<string> boldPhrases)
         {
-            var text = TextBoundary.PlainText(
+            var formatted = SafeModelText.Format(
                 body,
                 TextBoundary.MaxAssistantCharacters);
+            var text = formatted.PlainText;
             if (text.Length == 0)
             {
                 throw new InvalidOperationException(
                     "A non-empty draft body is required.");
             }
 
-            List<TextRange> markdownRanges;
-            text = NormalizeMarkdownStrong(
-                text,
-                out markdownRanges);
             var ranges = FindBoldRanges(text, boldPhrases);
-            ranges.AddRange(markdownRanges);
+            foreach (var range in formatted.BoldRanges)
+            {
+                ranges.Add(
+                    new TextRange(
+                        range.Start,
+                        range.Length));
+            }
             ranges = MergeRanges(ranges);
             var html = new StringBuilder(text.Length + 128);
             html.Append(
@@ -57,67 +60,6 @@ namespace OutlookLocalAIChat.Outlook
             return new SafeDraftContent(
                 text,
                 html.ToString());
-        }
-
-        private static string NormalizeMarkdownStrong(
-            string text,
-            out List<TextRange> boldRanges)
-        {
-            boldRanges = new List<TextRange>();
-            var normalized = new StringBuilder(text.Length);
-            var position = 0;
-            var lineStart = true;
-            while (position < text.Length)
-            {
-                if (lineStart &&
-                    position + 1 < text.Length &&
-                    text[position] == '*' &&
-                    text[position + 1] == ' ')
-                {
-                    normalized.Append("- ");
-                    position += 2;
-                    lineStart = false;
-                    continue;
-                }
-
-                if (position + 3 < text.Length &&
-                    ((text[position] == '*' &&
-                      text[position + 1] == '*') ||
-                     (text[position] == '_' &&
-                      text[position + 1] == '_')))
-                {
-                    var marker = text.Substring(position, 2);
-                    var close = text.IndexOf(
-                        marker,
-                        position + 2,
-                        StringComparison.Ordinal);
-                    if (close > position + 2)
-                    {
-                        var content = text.Substring(
-                            position + 2,
-                            close - position - 2);
-                        var start = normalized.Length;
-                        normalized.Append(content);
-                        boldRanges.Add(
-                            new TextRange(start, content.Length));
-                        lineStart = content.EndsWith(
-                            "\n",
-                            StringComparison.Ordinal) ||
-                            content.EndsWith(
-                                "\r",
-                                StringComparison.Ordinal);
-                        position = close + 2;
-                        continue;
-                    }
-                }
-
-                var value = text[position];
-                normalized.Append(value);
-                lineStart = value == '\n' || value == '\r';
-                position++;
-            }
-
-            return normalized.ToString();
         }
 
         private static List<TextRange> FindBoldRanges(

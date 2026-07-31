@@ -61,7 +61,8 @@ locally linked item. The dedicated host exposes no send operation.
 
 - Search and read bounded context from the primary Inbox and Sent Items.
 - Handle `/search person or topic` locally, retain only the newest five metadata
-  matches, and allow another `/search` to replace that set before an LLM call.
+  matches, show them as distinct collapsible context cards, and allow another
+  `/search` to replace that set before an LLM call.
 - Accept Ctrl+click multi-selection of two to five Outlook emails as the same
   locked working set.
 - Hold a text conversation about the mailbox, a selected message, or a retrieved
@@ -80,10 +81,11 @@ locally linked item. The dedicated host exposes no send operation.
   never both.
 - Reject all other model tool calls and cap calls, rounds, results, and returned
   text.
-- Never render model output as HTML or execute it as code. Draft formatting
-  accepts only plain text plus exact bold phrases and is HTML-encoded locally.
-  Paired Markdown bold markers are removed and converted to real local bold
-  formatting if a compatible model returns them anyway.
+- Never render model output as HTML or execute it as code. A shared local
+  formatter removes Markdown emphasis notation and maps bounded spans to native
+  RichTextBox bold in chat or locally encoded `<strong>` in Outlook drafts.
+  Draft formatting also accepts exact bold phrases. Stray formatting asterisks
+  are removed before display.
 - Support an OpenAI-compatible `/v1/chat/completions` endpoint.
 - Recommend `qwen3.5-35b-a3b` as the balanced default while preserving editable
   model identifiers and quality-first or speed-first fallbacks.

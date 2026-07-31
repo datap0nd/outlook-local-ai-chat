@@ -31,6 +31,7 @@ $draftToolHostPath = Join-Path $sourceRoot "Outlook\DraftToolHost.cs"
 $chatPanePath = Join-Path $sourceRoot "UI\ChatPane.cs"
 $intentPath = Join-Path $sourceRoot "Security\DraftIntentPolicy.cs"
 $workingSetPath = Join-Path $sourceRoot "Outlook\MailboxWorkingSet.cs"
+$safeModelTextPath = Join-Path $sourceRoot "Security\SafeModelText.cs"
 $catalogSource = Get-Content $catalogPath -Raw
 $draftCatalogSource = Get-Content $draftCatalogPath -Raw
 $modelFacingSource =
@@ -157,8 +158,20 @@ if (-not $mailboxContextSource.Contains(
 
 if (-not $chatPaneSource.Contains("LocalSearchCommand.Parse(prompt)") -or
     -not $chatPaneSource.Contains("CaptureSelectionMany(selection)") -or
-    -not $chatPaneSource.Contains("MailboxWorkingSet.MaxMessages")) {
+    -not $chatPaneSource.Contains("MailboxWorkingSet.MaxMessages") -or
+    -not $chatPaneSource.Contains("BuildWorkingSetCard") -or
+    -not $chatPaneSource.Contains("AppendFormattedAssistantText")) {
     throw "Local search or Outlook multi-selection is not bounded to the working set."
+}
+
+$safeModelTextSource = Get-Content $safeModelTextPath -Raw
+$safeDraftFormattingSource = Get-Content (
+    Join-Path $sourceRoot "Outlook\SafeDraftHtml.cs"
+) -Raw
+if (-not $safeModelTextSource.Contains("FormattedModelText") -or
+    -not $safeModelTextSource.Contains("boldRanges") -or
+    -not $safeDraftFormattingSource.Contains("SafeModelText.Format")) {
+    throw "Model emphasis is not shared by the chat and safe draft formatter."
 }
 
 $draftPath = Join-Path $sourceRoot "Outlook\DraftService.cs"

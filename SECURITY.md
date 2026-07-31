@@ -24,7 +24,7 @@ allowlisted tool call -> MailboxToolHost -> bounded local Outlook reads
 temporary handles + bounded untrusted text -> endpoint
     |
     v
-bounded plain-text response -> Outlook custom task pane
+bounded response -> local emphasis normalizer -> native RichTextBox spans
 
 Latest user prompt passes the local drafting-intent policy
     |
@@ -90,8 +90,8 @@ mutation attempt per user request.
     the unsent Outlook item.
 11. Draft operations call Outlook save and display behavior only. Subject and
     recipient fields are bounded single-line text. Body input is plain text;
-    local code removes paired Markdown bold markers, HTML-encodes the remaining
-    text, and may add only fixed `<strong>` and `<br>` tags from those markers or
+    shared local code removes Markdown emphasis markers, HTML-encodes the remaining
+    text, and may add only fixed `<strong>` and `<br>` tags from those spans or
     at most 12 exact bold phrases. BCC and arbitrary HTML are not accepted.
 12. Source scans fail on Outlook send, delete, move, Outbox, or send/receive
    capabilities.
@@ -102,6 +102,11 @@ mutation attempt per user request.
     stores only the newest five matching metadata records. A later normal prompt
     exposes only those handles, so the model cannot broaden the approved set.
     Ctrl+click multi-selection uses the same one-to-five normalization and cap.
+15. The chat never evaluates Markdown or HTML. A bounded local parser removes
+    emphasis markers and produces plain text plus bold character ranges. The
+    RichTextBox applies those ranges natively. The draft path consumes the same
+    ranges but continues to HTML-encode all text before inserting fixed
+    `<strong>` elements.
 
 The system prompt reinforces these limits, but no security property depends on
 the model obeying it.

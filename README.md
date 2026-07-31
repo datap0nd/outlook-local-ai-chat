@@ -71,7 +71,10 @@ email during the check.
    searches locally and keeps the newest five matching Inbox or Sent Items
    emails as the working set. No email body is sent during this command.
 3. Review the listed subjects and send another `/search` to replace the set if
-   it is wrong. Use `/search clear` to remove it.
+   it is wrong. Results appear in a collapsible working-set layer as five
+   distinct email cards with subject, sender, and date. Use `/search clear` to
+   remove it. The layer collapses automatically when you send a normal AI
+   prompt and can be reopened with **Show**.
 4. Alternatively, Ctrl+click two to five emails in Outlook, right-click the
    selection, and choose **Send to MailAI**. Those emails become the same
    locked working set.
@@ -125,7 +128,8 @@ scoped exception, not a general mutation permission.
 - The model client never receives the Outlook application object or draft
   service.
 - Model output is length-limited plain text displayed in a Windows control. It is
-  never evaluated, executed, or rendered as HTML.
+  never evaluated, executed, or rendered as HTML. Local code removes Markdown
+  emphasis markers and applies only native bold spans in the transcript.
 - Only a one-request authorization derived locally from explicit user drafting
   intent can create the linked draft. Later revisions require both recognized
   revision intent and that local linked-draft session.
@@ -177,9 +181,10 @@ display one unsent Outlook draft. While that draft is
 linked, a recognized revision request exposes `update_draft` instead. Each
 update supplies the complete bounded plain-text body and optional exact phrases to bold. The local
 formatter HTML-encodes all text and inserts only fixed `<strong>` and line-break
-markup. If a model mistakenly returns paired Markdown bold markers, the local
-formatter removes the markers and applies real Outlook bold formatting before
-display. Arbitrary model HTML is never accepted. Neither tool has a send operation.
+markup. If a model returns Markdown emphasis markers, the shared local formatter
+removes them and applies real bold formatting in both MailAI and Outlook. Stray
+formatting asterisks are removed. Arbitrary model HTML is never accepted. Neither
+tool has a send operation.
 
 Email bodies are sent only when the model requests them through an approved
 read-only tool. The add-in does not index, upload, or transmit the entire
