@@ -82,7 +82,9 @@ namespace OutlookLocalAIChat.Security
             if (position + 2 < text.Length &&
                 text[position] == '*' &&
                 text[position + 1] == '*' &&
-                text[position + 2] == '*')
+                text[position + 2] == '*' &&
+                position + 3 < text.Length &&
+                !char.IsWhiteSpace(text[position + 3]))
             {
                 return 3;
             }
@@ -91,12 +93,16 @@ namespace OutlookLocalAIChat.Security
                 ((text[position] == '*' &&
                   text[position + 1] == '*') ||
                  (text[position] == '_' &&
-                  text[position + 1] == '_')))
+                  text[position + 1] == '_')) &&
+                position + 2 < text.Length &&
+                !char.IsWhiteSpace(text[position + 2]))
             {
                 return 2;
             }
 
-            if (text[position] == '*')
+            if (text[position] == '*' &&
+                position + 1 < text.Length &&
+                !char.IsWhiteSpace(text[position + 1]))
             {
                 return 1;
             }
