@@ -68,6 +68,15 @@ namespace GuardrailTests
                     "Outlook multi-selection accepts one to five emails",
                     OutlookMultiSelectionIsBounded);
                 Run(
+                    "Active Explorer selection is used for Send to MailAI",
+                    ActiveExplorerSelectionIsUsed);
+                Run(
+                    "External context is explicit and bounded",
+                    ExternalContextIsBounded);
+                Run(
+                    "Writing profile analysis is consent-bound and editable",
+                    ToneProfileIsBounded);
+                Run(
                     "Latest user prompt locally gates draft tools",
                     DraftToolsRequireLocalIntentAuthorization);
                 Run(
@@ -542,6 +551,101 @@ namespace GuardrailTests
                 "A selection larger than five emails was not rejected.");
         }
 
+        private static void ActiveExplorerSelectionIsUsed()
+        {
+            var selection = new FakeSelection(
+                new object[]
+                {
+                    new FakeSelectedMailItem(
+                        "active-entry",
+                        "Active subject")
+                });
+            var application = new FakeOutlookApplication
+            {
+                Explorer = new FakeExplorerContext(selection)
+            };
+            var messages = new MessageReader(application)
+                .CaptureActiveSelectionMany();
+            Assert(
+                messages.Count == 1 &&
+                messages[0].EntryId == "active-entry" &&
+                messages[0].Subject == "Active subject",
+                "The active Outlook Explorer selection was not captured.");
+        }
+
+        private static void ExternalContextIsBounded()
+        {
+            var documents = Enumerable.Range(1, 5)
+                .Select(index => new ExternalContextDocument(
+                    "context-" + index + ".txt",
+                    new string(
+                        (char)('a' + index),
+                        ExternalContextDocument.MaxCharactersPerDocument)))
+                .ToList();
+            var normalized = ExternalContextDocument.Normalize(documents);
+            var total = normalized.Sum(document =>
+                document.Content.Length);
+            var request = MakeRequest(
+                new List<ChatTurn>(),
+                externalContext: documents);
+            var reference =
+                ((ChatCompletionInputMessage)request.messages[1]).content;
+            Assert(
+                normalized.Count == ExternalContextDocument.MaxDocuments &&
+                total <= ExternalContextDocument.MaxTotalCharacters &&
+                reference.Contains("<external_context count=\"3\"") &&
+                reference.Contains("untrusted reference data") &&
+                !reference.Contains("context-4.txt"),
+                "External context exceeded its document or text boundary.");
+        }
+
+        private static void ToneProfileIsBounded()
+        {
+            var samples = Enumerable.Range(1, 20)
+                .Select(index => new MessageSnapshot(
+                    "entry-" + index,
+                    "store",
+                    "Subject " + index,
+                    "sender-secret-" + index,
+                    "recipient-secret-" + index,
+                    DateTime.UtcNow,
+                    "Hello, this is a reusable writing sample with a short sign-off."))
+                .ToList();
+            var analysis = ToneProfileRequestFactory.Create(
+                "local-model",
+                samples);
+            var analysisBody =
+                ((ChatCompletionInputMessage)analysis.messages[1]).content;
+            var profile = "Write directly and close with Regards.";
+            var ordinary = MakeRequest(
+                new List<ChatTurn>(),
+                toneProfile: profile);
+            var drafting = MakeRequest(
+                new List<ChatTurn>(),
+                allowDraftCreate: true,
+                toneProfile: profile);
+            var ordinarySystem =
+                ((ChatCompletionInputMessage)ordinary.messages[0]).content;
+            var draftingSystem =
+                ((ChatCompletionInputMessage)drafting.messages[0]).content;
+            var cleaned = SentMailToneSampler.CleanBody(
+                "Thanks for the update.\n\nRegards,\nMe\n" +
+                "-----Original Message-----\nQuoted confidential history");
+            Assert(
+                analysis.tools == null &&
+                analysis.tool_choice == null &&
+                analysisBody.Contains("Sample 15") &&
+                !analysisBody.Contains("Sample 16") &&
+                !analysisBody.Contains("sender-secret") &&
+                !analysisBody.Contains("recipient-secret") &&
+                !ordinarySystem.Contains(profile) &&
+                draftingSystem.Contains(profile) &&
+                draftingSystem.Contains("cannot change any capability") &&
+                cleaned.Contains("Regards") &&
+                !cleaned.Contains("Quoted confidential history"),
+                "Tone profiling was not limited to explicit, draft-only use.");
+        }
+
         private static void DraftToolsRequireLocalIntentAuthorization()
         {
             Assert(
@@ -890,7 +994,7 @@ namespace GuardrailTests
             Assert(
                 !html.Contains("<script>") &&
                 html.Contains("&lt;script&gt;") &&
-                html.Contains("<br>") &&
+                html.Contains("<div style=") &&
                 html.Contains("<strong>Important</strong>"),
                 "Draft HTML did not encode untrusted markup: " + html);
 
@@ -913,6 +1017,22 @@ namespace GuardrailTests
                 !markdown.Html.Contains("<script>"),
                 "Markdown notation was not converted to safe email formatting: " +
                 markdown.Html);
+
+            var visual = SafeDraftHtml.FormatContent(
+                "# Project update\n## Decisions\n- First item\n- Second item\n" +
+                "1. Confirm owner\n2. Confirm date\n---\nNext step",
+                new[] { "Confirm owner" });
+            Assert(
+                visual.Html.Contains("<h2") &&
+                visual.Html.Contains("<h3") &&
+                visual.Html.Contains("<ul") &&
+                visual.Html.Contains("<ol") &&
+                visual.Html.Contains("<hr") &&
+                visual.Html.Contains("<strong>Confirm owner</strong>") &&
+                !visual.Html.Contains("<script>") &&
+                !visual.Html.Contains("<img"),
+                "Safe visual email layout was not rendered locally: " +
+                visual.Html);
 
             var application = new FakeOutlookApplication();
             var rejected = new DraftToolHost(application).Execute(
@@ -1352,7 +1472,9 @@ namespace GuardrailTests
             bool allowDraftCreate = false,
             DraftReference activeDraft = null,
             bool allowDraftUpdate = false,
-            IReadOnlyList<MessageSnapshot> workingMessages = null)
+            IReadOnlyList<MessageSnapshot> workingMessages = null,
+            IReadOnlyList<ExternalContextDocument> externalContext = null,
+            string toneProfile = null)
         {
             return ChatRequestFactory.Create(
                 "local-model",
@@ -1369,7 +1491,9 @@ namespace GuardrailTests
                 allowDraftCreate,
                 activeDraft,
                 allowDraftUpdate,
-                workingMessages);
+                workingMessages,
+                externalContext,
+                toneProfile);
         }
 
         private static void Assert(bool condition, string message)
@@ -1620,9 +1744,16 @@ namespace GuardrailTests
 
         public FakeMailItem LastDraft { get; private set; }
 
+        public FakeExplorerContext Explorer { get; set; }
+
         public FakeOutlookSession Session
         {
             get { return _session; }
+        }
+
+        public object ActiveExplorer()
+        {
+            return Explorer;
         }
 
         public FakeReplySource RegisterReplySource(

@@ -57,7 +57,7 @@ namespace OutlookLocalAIChat.Chat
                 {
                     "body",
                     BoundedString(
-                        "Complete plain-text draft body. Do not include commentary outside the draft.",
+                        "Complete draft body. Use # heading, ## subheading, - list item, 1. numbered item, and --- divider when a visual layout is requested. Never return raw HTML. Do not include commentary outside the draft.",
                         12000)
                 },
                 {

@@ -84,6 +84,8 @@ namespace OutlookLocalAIChat.UI
             new List<ChatTurn>();
         private readonly List<MessageSnapshot> _workingMessages =
             new List<MessageSnapshot>();
+        private readonly List<ExternalContextDocument> _externalContext =
+            new List<ExternalContextDocument>();
         private readonly RichTextBox _transcript =
             new RichTextBox();
         private readonly TextBox _composer = new TextBox();
@@ -99,7 +101,9 @@ namespace OutlookLocalAIChat.UI
             new FlowLayoutPanel();
         private TableLayoutPanel _rootLayout;
         private Button _workingSetToggle;
+        private Button _workingSetClear;
         private Button _refresh;
+        private Button _addFiles;
         private Button _newChat;
         private Button _settingsButton;
 
@@ -123,6 +127,9 @@ namespace OutlookLocalAIChat.UI
             Font = SystemFonts.MessageBoxFont;
             AutoScaleMode = AutoScaleMode.Font;
             MinimumSize = new Size(300, 480);
+            AllowDrop = true;
+            DragEnter += ChatPaneDragEnter;
+            DragDrop += ChatPaneDragDrop;
             BuildLayout();
             UpdateModelMeta();
             ShowWelcome();
@@ -180,7 +187,7 @@ namespace OutlookLocalAIChat.UI
             catch (Exception exception)
             {
                 _workingMessages.Clear();
-                HideWorkingSetLayer();
+                RefreshContextLayer("External files");
                 _selectedMessage = null;
                 SetScopeUnavailable(
                     "No selected email. Mailbox search is still available.");
@@ -198,26 +205,31 @@ namespace OutlookLocalAIChat.UI
                 return;
             }
 
+            if (_busy)
+            {
+                SetStatus(
+                    "Wait for the active request before changing context.",
+                    true);
+                return;
+            }
+
             try
             {
                 var reader = new MessageReader(
                     _outlookApplication);
-                var messages = selection == null
-                    ? reader.CaptureActiveSelectionMany()
-                    : reader.CaptureSelectionMany(selection);
-                if (messages.Count == 1)
+                IReadOnlyList<MessageSnapshot> messages;
+                try
                 {
-                    SetSelectedMessage(messages[0]);
-                    SetStatus(
-                        "Selected email added. Its body is loaded only if the model requests it.",
-                        false);
+                    messages = selection == null
+                        ? reader.CaptureActiveSelectionMany()
+                        : reader.CaptureSelectionMany(selection);
                 }
-                else
+                catch when (selection != null)
                 {
-                    SetWorkingMessages(
-                        messages,
-                        messages.Count + " emails selected in Outlook");
+                    messages = reader.CaptureActiveSelectionMany();
                 }
+
+                ApplySelectedMessages(messages);
             }
             catch (Exception exception)
             {
@@ -227,6 +239,34 @@ namespace OutlookLocalAIChat.UI
                     "EMAIL_SELECTION_FAILED");
                 SetStatus(FirstLine(details), true);
             }
+        }
+
+        public void AddActiveSelection()
+        {
+            UseRibbonSelection(null);
+        }
+
+        private void ApplySelectedMessages(
+            IReadOnlyList<MessageSnapshot> messages)
+        {
+            if (messages == null || messages.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "Select one to five emails in Outlook first.");
+            }
+
+            if (messages.Count == 1)
+            {
+                SetSelectedMessage(messages[0]);
+                SetStatus(
+                    "Selected email added. Its body is loaded only if the model requests it.",
+                    false);
+                return;
+            }
+
+            SetWorkingMessages(
+                messages,
+                messages.Count + " emails selected in Outlook");
         }
 
         private void HandleLocalSearchCommand(
@@ -248,7 +288,7 @@ namespace OutlookLocalAIChat.UI
                     return;
                 case LocalSearchCommandKind.Clear:
                     _workingMessages.Clear();
-                    HideWorkingSetLayer();
+                    RefreshContextLayer("External files");
                     _selectedMessage = null;
                     SetScopeUnavailable(
                         "No working set. Use /search or select email in Outlook.");
@@ -345,9 +385,7 @@ namespace OutlookLocalAIChat.UI
                 "Working set: " +
                 _workingMessages.Count +
                 " of 5 emails";
-            ShowWorkingSetLayer(
-                source,
-                _workingMessages);
+            ShowWorkingSetLayer(source, _workingMessages);
             AppendContext(
                 TextBoundary.SingleLine(source, 260) +
                 ". The five-email context layer is ready. " +
@@ -361,22 +399,43 @@ namespace OutlookLocalAIChat.UI
             string source,
             IReadOnlyList<MessageSnapshot> messages)
         {
+            RefreshContextLayer(source);
+        }
+
+        private void RefreshContextLayer(string source)
+        {
             ClearWorkingSetCards();
+            var emailCount = _workingMessages.Count;
+            var fileCount = _externalContext.Count;
+            if (emailCount + fileCount == 0)
+            {
+                HideWorkingSetLayer();
+                return;
+            }
+
             _workingSetHeading.Text =
-                "Working set - " +
-                messages.Count +
-                (messages.Count == 1
-                    ? " email"
-                    : " emails");
+                "Context - " +
+                (emailCount + fileCount) +
+                ((emailCount + fileCount) == 1
+                    ? " item"
+                    : " items");
             _workingSetHeading.AccessibleDescription =
                 TextBoundary.SingleLine(source, 260) +
-                ". Only these emails can be read while this working set is active.";
-            for (var index = 0; index < messages.Count; index++)
+                ". Bounded user-approved email and file context.";
+            for (var index = 0; index < emailCount; index++)
             {
                 _workingSetCards.Controls.Add(
                     BuildWorkingSetCard(
                         index,
-                        messages[index]));
+                        _workingMessages[index]));
+            }
+
+            for (var index = 0; index < fileCount; index++)
+            {
+                _workingSetCards.Controls.Add(
+                    BuildExternalContextCard(
+                        index,
+                        _externalContext[index]));
             }
 
             _workingSetExpanded = true;
@@ -388,6 +447,79 @@ namespace OutlookLocalAIChat.UI
             SetWorkingSetRowHeight(
                 WorkingSetExpandedHeight);
             ResizeWorkingSetCards();
+        }
+
+        private Control BuildExternalContextCard(
+            int index,
+            ExternalContextDocument document)
+        {
+            var card = new Panel
+            {
+                Height = 50,
+                Margin = new Padding(0, 0, 0, 5),
+                Padding = new Padding(8, 4, 8, 4),
+                BackColor = SystemColors.Window,
+                BorderStyle = BorderStyle.FixedSingle,
+                AccessibleName = "Context file: " + document.Name,
+                AccessibleDescription =
+                    document.Content.Length + " bounded text characters"
+            };
+            var grid = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 2,
+                BackColor = SystemColors.Window,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            grid.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Absolute, 36));
+            grid.ColumnStyles.Add(
+                new ColumnStyle(SizeType.Percent, 100));
+            grid.RowStyles.Add(
+                new RowStyle(SizeType.Percent, 52));
+            grid.RowStyles.Add(
+                new RowStyle(SizeType.Percent, 48));
+            var badge = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "FILE",
+                TextAlign = ContentAlignment.TopLeft,
+                ForeColor = OutlookBlue,
+                Font = new Font(
+                    Font.FontFamily,
+                    Math.Max(7F, Font.Size - 2F),
+                    FontStyle.Bold)
+            };
+            var name = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = document.Name,
+                AutoEllipsis = true,
+                ForeColor = TextPrimary,
+                Font = new Font(
+                    Font.FontFamily,
+                    Font.Size,
+                    FontStyle.Bold)
+            };
+            var metadata = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = document.Content.Length + " text characters",
+                AutoEllipsis = true,
+                ForeColor = TextSecondary,
+                Font = new Font(
+                    Font.FontFamily,
+                    Math.Max(8F, Font.Size - 1F),
+                    FontStyle.Regular)
+            };
+            grid.Controls.Add(badge, 0, 0);
+            grid.SetRowSpan(badge, 2);
+            grid.Controls.Add(name, 1, 0);
+            grid.Controls.Add(metadata, 1, 1);
+            card.Controls.Add(grid);
+            return card;
         }
 
         private Control BuildWorkingSetCard(
@@ -503,7 +635,7 @@ namespace OutlookLocalAIChat.UI
                 expanded ? "Hide" : "Show";
             _workingSetToggle.AccessibleName =
                 (expanded ? "Hide" : "Show") +
-                " working set";
+                " context";
             SetWorkingSetRowHeight(
                 expanded
                     ? WorkingSetExpandedHeight
@@ -529,6 +661,164 @@ namespace OutlookLocalAIChat.UI
             ClearWorkingSetCards();
             _workingSetLayer.Visible = false;
             SetWorkingSetRowHeight(0);
+        }
+
+        private void ClearContextClick(
+            object sender,
+            EventArgs eventArgs)
+        {
+            if (_busy)
+            {
+                return;
+            }
+
+            _workingMessages.Clear();
+            _externalContext.Clear();
+            _selectedMessage = null;
+            HideWorkingSetLayer();
+            SetScopeUnavailable(
+                "No context selected. Use /search, Add email, or Add files.");
+            SetStatus(
+                "Email and external file context cleared.",
+                false);
+        }
+
+        private void AddFilesClick(
+            object sender,
+            EventArgs eventArgs)
+        {
+            using (var dialog = new OpenFileDialog
+            {
+                Title = "Add bounded text context to MailAI",
+                Multiselect = true,
+                CheckFileExists = true,
+                Filter =
+                    "Supported text files|*.txt;*.md;*.csv;*.json;*.xml;*.html;*.htm;*.log;*.yaml;*.yml;*.ini|" +
+                    "All files|*.*"
+            })
+            {
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                {
+                    AddExternalFiles(dialog.FileNames);
+                }
+            }
+        }
+
+        private void AddExternalFiles(IEnumerable<string> paths)
+        {
+            try
+            {
+                var loaded = ExternalContextLoader.LoadFiles(paths);
+                var combined = new List<ExternalContextDocument>(
+                    _externalContext);
+                combined.AddRange(loaded);
+                var normalized =
+                    ExternalContextDocument.Normalize(combined);
+                _externalContext.Clear();
+                foreach (var document in normalized)
+                {
+                    _externalContext.Add(document);
+                }
+
+                RefreshContextLayer("External files");
+                SetStatus(
+                    _externalContext.Count +
+                    (_externalContext.Count == 1
+                        ? " external context file is ready."
+                        : " external context files are ready.") +
+                    " File text is bounded and treated as untrusted data.",
+                    false);
+            }
+            catch (Exception exception)
+            {
+                var details = DiagnosticDetails.ForException(
+                    exception,
+                    "EXTERNAL_CONTEXT_FAILED");
+                SetStatus(FirstLine(details), true);
+                Log.Error("AddExternalContext", exception);
+            }
+        }
+
+        private void ChatPaneDragEnter(
+            object sender,
+            DragEventArgs eventArgs)
+        {
+            if (_busy || eventArgs.Data == null)
+            {
+                eventArgs.Effect = DragDropEffects.None;
+                return;
+            }
+
+            if (HasOutlookDragFormat(eventArgs.Data))
+            {
+                eventArgs.Effect = DragDropEffects.Link;
+                return;
+            }
+
+            if (eventArgs.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                eventArgs.Effect = DragDropEffects.Copy;
+                return;
+            }
+
+            eventArgs.Effect = DragDropEffects.None;
+        }
+
+        private void ChatPaneDragDrop(
+            object sender,
+            DragEventArgs eventArgs)
+        {
+            if (_busy || eventArgs.Data == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (HasOutlookDragFormat(eventArgs.Data))
+                {
+                    AddActiveSelection();
+                    return;
+                }
+
+                if (eventArgs.Data.GetDataPresent(DataFormats.FileDrop))
+                {
+                    var paths = eventArgs.Data.GetData(
+                        DataFormats.FileDrop) as string[];
+                    AddExternalFiles(paths);
+                    return;
+                }
+
+            }
+            catch (Exception exception)
+            {
+                var details = DiagnosticDetails.ForException(
+                    exception,
+                    "CONTEXT_DROP_FAILED");
+                SetStatus(FirstLine(details), true);
+                Log.Error("DropContext", exception);
+            }
+        }
+
+        private static bool HasOutlookDragFormat(IDataObject data)
+        {
+            foreach (var format in data.GetFormats())
+            {
+                if (format.Equals(
+                        "RenPrivateMessages",
+                        StringComparison.OrdinalIgnoreCase) ||
+                    format.Equals(
+                        "FileGroupDescriptor",
+                        StringComparison.OrdinalIgnoreCase) ||
+                    format.Equals(
+                        "FileGroupDescriptorW",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void ClearWorkingSetCards()
@@ -642,7 +932,11 @@ namespace OutlookLocalAIChat.UI
             _workingSetToggle = MakeLinkButton("Hide", 52);
             _workingSetToggle.Dock = DockStyle.Right;
             _workingSetToggle.Click += WorkingSetToggleClick;
+            _workingSetClear = MakeLinkButton("Clear", 52);
+            _workingSetClear.Dock = DockStyle.Right;
+            _workingSetClear.Click += ClearContextClick;
             header.Controls.Add(_workingSetHeading);
+            header.Controls.Add(_workingSetClear);
             header.Controls.Add(_workingSetToggle);
 
             _workingSetCards.Dock = DockStyle.Fill;
@@ -719,15 +1013,18 @@ namespace OutlookLocalAIChat.UI
                 BackColor = SystemColors.Window
             };
 
-            _refresh = MakeLinkButton("Refresh selection", 116);
+            _refresh = MakeLinkButton("Add email", 74);
             _refresh.Click +=
-                (sender, args) => RefreshSelectedMessage();
-            _newChat = MakeLinkButton("New chat", 74);
+                (sender, args) => AddActiveSelection();
+            _addFiles = MakeLinkButton("Add files", 68);
+            _addFiles.Click += AddFilesClick;
+            _newChat = MakeLinkButton("New", 44);
             _newChat.Click += NewChatClick;
-            _settingsButton = MakeLinkButton("Settings", 72);
+            _settingsButton = MakeLinkButton("Settings", 64);
             _settingsButton.Click += SettingsClick;
 
             toolbar.Controls.Add(_refresh);
+            toolbar.Controls.Add(_addFiles);
             toolbar.Controls.Add(_newChat);
             toolbar.Controls.Add(_settingsButton);
             return toolbar;
@@ -915,6 +1212,8 @@ namespace OutlookLocalAIChat.UI
             var requestSelectedMessage = _selectedMessage;
             var requestWorkingMessages =
                 new List<MessageSnapshot>(_workingMessages);
+            var requestExternalContext =
+                new List<ExternalContextDocument>(_externalContext);
             var hasLinkedDraft =
                 _draftTools != null &&
                 _draftTools.HasActiveDraft;
@@ -941,6 +1240,7 @@ namespace OutlookLocalAIChat.UI
                 var response = await CompleteMailboxChatAsync(
                     requestSelectedMessage,
                     requestWorkingMessages,
+                    requestExternalContext,
                     prompt,
                     draftAuthorization,
                     _requestCancellation.Token);
@@ -1016,6 +1316,7 @@ namespace OutlookLocalAIChat.UI
         private async Task<string> CompleteMailboxChatAsync(
             MessageSnapshot selectedMessage,
             IReadOnlyList<MessageSnapshot> workingMessages,
+            IReadOnlyList<ExternalContextDocument> externalContext,
             string prompt,
             OneShotDraftAuthorization draftAuthorization,
             CancellationToken cancellationToken)
@@ -1031,7 +1332,11 @@ namespace OutlookLocalAIChat.UI
                 draftAuthorization.CanCreate,
                 activeDraft,
                 draftAuthorization.CanUpdate,
-                workingMessages);
+                workingMessages,
+                externalContext,
+                _settings.UseToneProfile
+                    ? _settings.ToneProfile
+                    : null);
             var mailboxTools = new MailboxToolHost(
                 _outlookApplication,
                 selectedMessage,
@@ -1122,6 +1427,7 @@ namespace OutlookLocalAIChat.UI
 
             _history.Clear();
             _workingMessages.Clear();
+            _externalContext.Clear();
             HideWorkingSetLayer();
             _draftTools?.Dispose();
             _draftTools = _outlookApplication == null
@@ -1147,7 +1453,10 @@ namespace OutlookLocalAIChat.UI
         private void OpenSettings()
         {
             using (var settingsWindow =
-                new SettingsWindow(_settingsStore, _settings))
+                new SettingsWindow(
+                    _settingsStore,
+                    _settings,
+                    _outlookApplication))
             {
                 if (settingsWindow.ShowDialog(this) ==
                     DialogResult.OK)
@@ -1325,6 +1634,7 @@ namespace OutlookLocalAIChat.UI
             _send.Text = busy ? "Cancel" : "Send to AI";
             _composer.Enabled = !busy;
             _refresh.Enabled = !busy;
+            _addFiles.Enabled = !busy;
             _newChat.Enabled = !busy;
             _settingsButton.Enabled = !busy;
             if (busy)
@@ -1378,7 +1688,7 @@ namespace OutlookLocalAIChat.UI
         private void SetSelectedMessage(MessageSnapshot message)
         {
             _workingMessages.Clear();
-            HideWorkingSetLayer();
+            RefreshContextLayer("External files");
             _selectedMessage = message ??
                 throw new ArgumentNullException(nameof(message));
             _scopeTitle.Text = "MailAI";
@@ -1405,10 +1715,11 @@ namespace OutlookLocalAIChat.UI
             AppendStyledBlock(
                 "Ready",
                 "Ask across Inbox and Sent Items. MailAI loads no more than five " +
-                "email bodies, and every context operation appears here.\n\n" +
+                "email bodies. Add up to three bounded text files as external context.\n\n" +
                 "Try:\n" +
                 "- /search person or topic\n" +
-                "- Ctrl+click up to five emails, then right-click Send to MailAI.\n" +
+                "- Ctrl+click up to five emails, then click Add email or right-click Send to MailAI.\n" +
+                "- Drag selected Outlook emails onto MailAI, or drag supported text files here.\n" +
                 "- Ask MailAI to summarize or compare the working set.\n" +
                 "- Find a message and create a concise reply draft.\n" +
                 "- Once it opens, ask to shorten it or bold an exact section.",

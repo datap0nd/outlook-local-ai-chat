@@ -143,17 +143,19 @@ The palette is mostly Windows system color roles, with a fixed Outlook-adjacent 
 
 **The System Font Rule.** Use `SystemFonts.MessageBoxFont` and relative size adjustments. Do not bundle a custom font or pin typography in a way that defeats Windows text scaling.
 
-**The Safe-Rich-Text Rule.** Transcript content remains bounded plain text. A local parser may apply native RichTextBox bold to bounded character ranges after removing Markdown emphasis markers. Do not render HTML, Markdown actions, links, or executable affordances.
+**The Safe-Rich-Text Rule.** Transcript content remains bounded plain text. A local parser may apply native RichTextBox bold to bounded character ranges after removing Markdown emphasis markers. Drafts may use a fixed local renderer for headings, subheadings, lists, dividers, and bold text. Model-provided HTML, links, images, scripts, and executable affordances are never rendered.
 
 ## Layout
 
-The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 92 pixels high and includes either the selected subject or five-email working-set count plus the exact active model, followed by a compact 38-pixel toolbar. When active, a collapsible 322-pixel review layer appears above the transcript so all five compact email blocks are visible together at normal Windows text scale. The transcript consumes all remaining flexible height. The 154-pixel composer band and 64-pixel status band remain anchored at the bottom.
+The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 92 pixels high and includes either the selected subject or five-email working-set count plus the exact active model, followed by a compact 38-pixel toolbar. When active, a collapsible 322-pixel context layer appears above the transcript. It shows bounded email cards and external text-file cards in one scrollable ledger. The transcript consumes all remaining flexible height. The 154-pixel composer band and 64-pixel status band remain anchored at the bottom.
 
 Horizontal content padding is 14 pixels in the sidebar work areas. The toolbar uses 8 pixels, while the modal settings form uses 24 pixels. Vertical rhythm is compact, generally 3 to 10 pixels between related controls. The transcript stays visually open and scrolls vertically instead of becoming a stack of cards.
 
 The composer is a two-column grid: a fluid multiline text field and a fixed action column. The send button fills the message row. A persistent safety line below the message field says "Say 'create a draft' to open one. MailAI cannot send." After creation it becomes a blue linked state: "One draft linked. Revision requests update this draft only." Long message subjects and status text ellipsize rather than breaking the frame.
 
-The settings window is a centered modal, 620 by 590 client pixels with a 560 by 570 minimum. Endpoint, editable model selector, and API-key fields stack vertically. The model selector includes a direct recommended-model action and concise tradeoff guidance. An explicit insecure-HTTP checkbox and transport warning follow the credential fields. A visible endpoint check validates authentication, optional model discovery, and a synthetic mailbox tool call before the bottom Save and Cancel actions.
+The settings window is a centered modal with separate Connection and Writing style tabs. Connection contains the endpoint, editable model selector, API key, HTTP warning, and endpoint verification. Writing style contains an explicit consent action, a visible disclosure that no analysis runs automatically, an editable profile field, and a draft-only enable checkbox. Save and Cancel remain common bottom actions.
+
+The context toolbar uses short native actions for Add email, Add files, New, and Settings. Email drops resolve the current Outlook Explorer selection. File drops and the file picker accept only a small supported text-format set, show each accepted file in the context ledger, and expose the fixed three-file boundary in status text.
 
 ### Named Rules
 

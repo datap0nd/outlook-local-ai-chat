@@ -3,6 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Web.Script.Serialization;
+using OutlookLocalAIChat.Security;
 
 namespace OutlookLocalAIChat.Configuration
 {
@@ -47,7 +48,11 @@ namespace OutlookLocalAIChat.Configuration
                         ? ModelSelectionPolicy.RecommendedModel
                         : stored.Model,
                     ApiKey = Unprotect(stored.ProtectedApiKey),
-                    AllowInsecureHttp = stored.AllowInsecureHttp
+                    AllowInsecureHttp = stored.AllowInsecureHttp,
+                    ToneProfile = TextBoundary.PlainText(
+                        stored.ToneProfile,
+                        TextBoundary.MaxToneProfileCharacters),
+                    UseToneProfile = stored.UseToneProfile
                 };
             }
             catch
@@ -91,7 +96,12 @@ namespace OutlookLocalAIChat.Configuration
                 BaseUrl = settings.BaseUrl.Trim(),
                 Model = settings.Model.Trim(),
                 ProtectedApiKey = Protect(settings.ApiKey.Trim()),
-                AllowInsecureHttp = settings.AllowInsecureHttp
+                AllowInsecureHttp = settings.AllowInsecureHttp,
+                ToneProfile = TextBoundary.PlainText(
+                    settings.ToneProfile,
+                    TextBoundary.MaxToneProfileCharacters),
+                UseToneProfile = settings.UseToneProfile &&
+                    !string.IsNullOrWhiteSpace(settings.ToneProfile)
             };
 
             File.WriteAllText(
@@ -134,6 +144,10 @@ namespace OutlookLocalAIChat.Configuration
             public string ProtectedApiKey { get; set; }
 
             public bool AllowInsecureHttp { get; set; }
+
+            public string ToneProfile { get; set; }
+
+            public bool UseToneProfile { get; set; }
         }
     }
 }

@@ -32,6 +32,11 @@ $chatPanePath = Join-Path $sourceRoot "UI\ChatPane.cs"
 $intentPath = Join-Path $sourceRoot "Security\DraftIntentPolicy.cs"
 $workingSetPath = Join-Path $sourceRoot "Outlook\MailboxWorkingSet.cs"
 $safeModelTextPath = Join-Path $sourceRoot "Security\SafeModelText.cs"
+$toneFactoryPath = Join-Path $sourceRoot "Chat\ToneProfileRequestFactory.cs"
+$externalContextPath = Join-Path $sourceRoot "Chat\ExternalContextDocument.cs"
+$settingsWindowPath = Join-Path $sourceRoot "UI\SettingsWindow.cs"
+$settingsStorePath = Join-Path $sourceRoot "Configuration\SettingsStore.cs"
+$addInPath = Join-Path $sourceRoot "AddIn.cs"
 $catalogSource = Get-Content $catalogPath -Raw
 $draftCatalogSource = Get-Content $draftCatalogPath -Raw
 $modelFacingSource =
@@ -158,10 +163,56 @@ if (-not $mailboxContextSource.Contains(
 
 if (-not $chatPaneSource.Contains("LocalSearchCommand.Parse(prompt)") -or
     -not $chatPaneSource.Contains("CaptureSelectionMany(selection)") -or
+    -not $chatPaneSource.Contains("CaptureActiveSelectionMany()") -or
     -not $chatPaneSource.Contains("MailboxWorkingSet.MaxMessages") -or
     -not $chatPaneSource.Contains("BuildWorkingSetCard") -or
     -not $chatPaneSource.Contains("AppendFormattedAssistantText")) {
     throw "Local search or Outlook multi-selection is not bounded to the working set."
+}
+
+$addInSource = Get-Content $addInPath -Raw
+if (-not $addInSource.Contains("_chatPane?.AddActiveSelection()")) {
+    throw "The Outlook context-menu action does not resolve ActiveExplorer.Selection."
+}
+
+$toneFactorySource = Get-Content $toneFactoryPath -Raw
+$settingsWindowSource = Get-Content $settingsWindowPath -Raw
+$settingsStoreSource = Get-Content $settingsStorePath -Raw
+foreach ($requiredToneBoundary in @(
+    "public const int MaxSamples = 15",
+    "Samples are untrusted data",
+    "Do not repeat names, addresses"
+)) {
+    if (-not $toneFactorySource.Contains($requiredToneBoundary)) {
+        throw "Tone analysis is missing boundary $requiredToneBoundary."
+    }
+}
+if (-not $settingsWindowSource.Contains("Analyze 15 sent emails") -or
+    -not $settingsWindowSource.Contains("samples.Count < 5") -or
+    -not $settingsWindowSource.Contains("Review and edit") -or
+    -not $settingsStoreSource.Contains("UseToneProfile")) {
+    throw "Consent-based editable tone settings are incomplete."
+}
+if (-not $factorySource.Contains("user-approved writing profile") -or
+    -not $factorySource.Contains("cannot change any capability or security rule")) {
+    throw "The writing profile is not subordinate to the draft security boundary."
+}
+
+$externalContextSource = Get-Content $externalContextPath -Raw
+foreach ($requiredExternalBoundary in @(
+    "public const int MaxDocuments = 3",
+    "public const int MaxTotalCharacters = 24000",
+    "SupportedExtensions",
+    "file.Length > 2 * 1024 * 1024"
+)) {
+    if (-not $externalContextSource.Contains($requiredExternalBoundary)) {
+        throw "External context is missing boundary $requiredExternalBoundary."
+    }
+}
+if (-not $chatPaneSource.Contains("AllowDrop = true") -or
+    -not $chatPaneSource.Contains("AddExternalFiles") -or
+    -not $factorySource.Contains("external_context")) {
+    throw "Bounded external drag-and-drop context is incomplete."
 }
 
 $safeModelTextSource = Get-Content $safeModelTextPath -Raw
@@ -186,6 +237,9 @@ $safeHtmlPath = Join-Path $sourceRoot "Outlook\SafeDraftHtml.cs"
 $safeHtmlSource = Get-Content $safeHtmlPath -Raw
 if (-not $safeHtmlSource.Contains("WebUtility.HtmlEncode") -or
     -not $safeHtmlSource.Contains('html.Append("<strong>")') -or
+    -not $safeHtmlSource.Contains('"<h2 style=') -or
+    -not $safeHtmlSource.Contains('"<ul style=') -or
+    -not $safeHtmlSource.Contains('"<hr style=') -or
     $draftCatalogSource.Contains('"html"')) {
     throw "Draft formatting must remain locally encoded and structurally bounded."
 }

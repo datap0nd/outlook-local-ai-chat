@@ -92,9 +92,8 @@ namespace OutlookLocalAIChat
 
         public void OnSendToAi(object control)
         {
-            var selection = GetRibbonContext(control);
             OpenChat(control, false);
-            _chatPane?.UseRibbonSelection(selection);
+            _chatPane?.AddActiveSelection();
         }
 
         public void OnOpenChat(object control)

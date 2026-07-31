@@ -112,7 +112,7 @@ namespace OutlookLocalAIChat.Outlook
                     call.id,
                     authorization,
                     "DRAFT_BODY_REQUIRED",
-                    "A non-empty plain-text draft body is required.");
+                    "A non-empty draft body is required.");
             }
 
             return DraftToolCatalog.IsCreateDraft(name)

@@ -12,7 +12,7 @@ feedback.
 ## Capability separation
 
 ```text
-Prompt + optional selected-message or five-email working-set metadata
+Prompt + optional selected-message, five-email working set, and bounded files
     |
     v
 OpenAiCompatibleClient -> messages + read-only tool schema -> endpoint
@@ -40,7 +40,12 @@ Later user feedback passes the local revision-intent policy
 request includes update_draft -> DraftToolHost -> consume once
     |
     v
-SafeDraftHtml -> remove Markdown markers + encode text + apply bold -> Save + Display same item
+SafeDraftHtml -> remove Markdown markers + encode text + fixed visual layout -> Save + Display same item
+
+Explicit Settings click -> clean at most 15 recent Sent Items samples
+    |
+    v
+no-tool style request -> editable local writing profile -> draft-only prompt data
 ```
 
 `OpenAiCompatibleClient` has no reference to the Outlook application object or
@@ -89,15 +94,17 @@ mutation attempt per user request.
     or update attempt. Starting a new chat releases the COM link without deleting
     the unsent Outlook item.
 11. Draft operations call Outlook save and display behavior only. Subject and
-    recipient fields are bounded single-line text. Body input is plain text;
-    shared local code removes Markdown emphasis markers, HTML-encodes the remaining
-    text, and may add only fixed `<strong>` and `<br>` tags from those spans or
-    at most 12 exact bold phrases. BCC and arbitrary HTML are not accepted.
+    recipient fields are bounded single-line text. Shared local code removes
+    Markdown emphasis markers and HTML-encodes the remaining text. It may add
+    only fixed paragraph, heading, subheading, list, divider, and `<strong>`
+    elements. At most 12 exact phrases may be bolded. BCC and arbitrary model
+    HTML are not accepted.
 12. Source scans fail on Outlook send, delete, move, Outbox, or send/receive
    capabilities.
-13. Conversation history and the active working set are held in memory and
-    cleared by **New chat** or Outlook shutdown. `/search clear` removes only
-    the current selection and working set.
+13. Conversation history, the active working set, and external context are held
+    in memory and cleared by **New** or Outlook shutdown. `/search clear` removes
+    only the current selection and working set. The visible **Clear** action
+    removes both mailbox and external context.
 14. `/search` is parsed and executed locally without calling the endpoint. It
     stores only the newest five matching metadata records. A later normal prompt
     exposes only those handles, so the model cannot broaden the approved set.
@@ -106,7 +113,16 @@ mutation attempt per user request.
     emphasis markers and produces plain text plus bold character ranges. The
     RichTextBox applies those ranges natively. The draft path consumes the same
     ranges but continues to HTML-encode all text before inserting fixed
-    `<strong>` elements.
+    `<strong>` elements and other compile-time visual layout tags.
+16. External context requires an explicit file selection or drop. It is limited
+    to three supported text files, 2 MB per file before reading, 12,000 text
+    characters per file, and 24,000 total. It is labeled as untrusted reference
+    data and cannot add instructions or capabilities.
+17. Writing-style analysis never runs automatically. It requires an explicit
+    Settings action, reads at most 15 recent usable Sent Items messages, removes
+    obvious quoted history, and uses a no-tool model request. The generated
+    profile is visible and editable. It is added only to locally authorized
+    draft requests and is subordinate to every capability boundary.
 
 The system prompt reinforces these limits, but no security property depends on
 the model obeying it.

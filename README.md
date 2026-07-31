@@ -24,6 +24,8 @@ an external Outlook MCP server.
    - **Allow insecure HTTP** only when a non-local endpoint uses plain HTTP.
 7. Choose **Check endpoint**. Save only after authentication, the selected
    model, and mailbox tool calling pass.
+8. Optional: open **Writing style**, click **Analyze 15 sent emails**, review
+   the generated drafting instructions, edit them, and enable the profile.
 
 Examples:
 
@@ -64,7 +66,7 @@ email during the check.
 ## Use
 
 1. Open **MailAI**. The chat appears as a sidebar inside Outlook.
-   You can also right-click one selected email and choose **Send to MailAI**.
+   You can also right-click selected email messages and choose **Send to MailAI**.
    The sidebar opens with `Selected: subject` at the top. Common `RE:`, `FW:`,
    and `FWD:` prefixes are hidden in that display.
 2. To choose a bounded group first, enter `/search person or topic`. MailAI
@@ -75,28 +77,42 @@ email during the check.
    distinct email cards with subject, sender, and date. Use `/search clear` to
    remove it. The layer collapses automatically when you send a normal AI
    prompt and can be reopened with **Show**.
-4. Alternatively, Ctrl+click two to five emails in Outlook, right-click the
-   selection, and choose **Send to MailAI**. Those emails become the same
-   locked working set.
-5. Ask a normal mailbox question. When a working set exists, the model can read
+4. Alternatively, Ctrl+click one to five emails in Outlook, then choose
+   **Add email**, right-click **Send to MailAI**, or drag the selected messages
+   onto the MailAI pane. Multiple messages become the same locked working set.
+5. Use **Add files** or drag files from Windows Explorer to add up to three
+   bounded external-context files. Supported formats are TXT, Markdown, CSV,
+   JSON, XML, HTML, LOG, YAML, and INI. HTML files are read as inert text, not
+   rendered. Each file is limited to 2 MB on disk and 12,000 extracted text
+   characters, with 24,000 characters total.
+6. Ask a normal mailbox question. When a working set exists, the model can read
    only those emails. Without one, it may perform one bounded mailbox search
    and load no more than five unique email bodies for the request.
-6. The sidebar records which bounded context operations ran.
-7. Ask explicitly, for example "create a reply draft" or "write an email."
+7. The sidebar records which bounded context operations ran.
+8. Ask explicitly, for example "create a reply draft" or "write an email."
    Local code recognizes that drafting intent and exposes one creation attempt
    for that request. The draft opens unsent in Outlook.
-8. A mailbox question without explicit drafting language cannot expose draft
+9. A mailbox question without explicit drafting language cannot expose draft
    creation. Loaded email text and model output cannot authorize it.
-9. The same Outlook draft stays linked to that chat. Follow-up instructions such
+10. The same Outlook draft stays linked to that chat. Follow-up instructions such
    as "make it shorter" or "bold the deadline" update and redisplay that exact
    unsent item. No second draft is created.
-10. Review, edit, address, and send the message using Outlook's normal editor.
+11. Review, edit, address, and send the message using Outlook's normal editor.
 
 Selecting an email is optional for mailbox questions. When one is selected, the
 model receives its metadata and may request its body using the temporary
 `selected` handle. A two-to-five-email selection is stored as a locked working
 set with `context1` through `context5` handles. The conversation and working set
-remain in memory until **New chat**, `/search clear`, or Outlook closes.
+remain in memory until cleared or Outlook closes. `/search clear` removes the
+email working set but retains external files. **Clear** removes all context, and
+**New** starts a new conversation with no retained context.
+
+Writing-style analysis never runs automatically. It requires a click in
+Settings, reads at most 15 recent usable Sent Items messages, removes obvious
+quoted history, and sends bounded samples to the configured AI endpoint. The
+result is visible and editable before saving. It is included only in draft
+creation and revision requests, and only for wording, greeting, cadence, and
+sign-off. It cannot alter any capability or security rule.
 
 ## Hard security boundary
 
@@ -127,8 +143,8 @@ scoped exception, not a general mutation permission.
   back to the selected or latest mailbox item.
 - The model client never receives the Outlook application object or draft
   service.
-- Model output is length-limited plain text displayed in a Windows control. It is
-  never evaluated, executed, or rendered as HTML. Local code removes Markdown
+- Model output is length-limited text displayed in a Windows control. It is
+  never evaluated, executed, or rendered as model-provided HTML. Local code removes Markdown
   emphasis markers and applies only native bold spans in the transcript.
 - Only a one-request authorization derived locally from explicit user drafting
   intent can create the linked draft. Later revisions require both recognized
@@ -157,7 +173,10 @@ Every chat request initially sends the configured endpoint:
 
 - selected email metadata, or metadata for up to five working-set emails;
 - up to 12 recent chat turns;
-- the current prompt.
+- the current prompt;
+- up to three explicitly added bounded text files;
+- the editable writing profile only when drafting is locally authorized and the
+  profile is enabled.
 
 The model may then request:
 
@@ -179,9 +198,11 @@ recipients, CC recipients, and body, or a reply body plus the exact temporary
 handle of a searched or selected source message. The tool can only save and
 display one unsent Outlook draft. While that draft is
 linked, a recognized revision request exposes `update_draft` instead. Each
-update supplies the complete bounded plain-text body and optional exact phrases to bold. The local
-formatter HTML-encodes all text and inserts only fixed `<strong>` and line-break
-markup. If a model returns Markdown emphasis markers, the shared local formatter
+update supplies the complete bounded body and optional exact phrases to bold.
+The local formatter HTML-encodes all text and inserts only fixed headings,
+subheadings, lists, dividers, paragraphs, and `<strong>` markup. The model can
+request these visual structures with a small text layout syntax, but raw HTML is
+rejected. If a model returns Markdown emphasis markers, the shared local formatter
 removes them and applies real bold formatting in both MailAI and Outlook. Stray
 formatting asterisks are removed. Arbitrary model HTML is never accepted. Neither
 tool has a send operation.
@@ -232,6 +253,9 @@ DRAFT_ALREADY_LINKED
 DRAFT_TOOL_MUST_BE_EXCLUSIVE
 DRAFT_CREATION_FAILED
 DRAFT_UPDATE_FAILED
+TONE_SAMPLES_INSUFFICIENT
+TONE_ANALYSIS_FAILED
+EXTERNAL_CONTEXT_FAILED
 OUTLOOK_COM_0x800...
 ```
 

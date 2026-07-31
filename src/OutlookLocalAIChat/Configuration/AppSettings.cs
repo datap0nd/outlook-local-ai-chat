@@ -13,6 +13,10 @@ namespace OutlookLocalAIChat.Configuration
 
         public bool AllowInsecureHttp { get; set; }
 
+        public string ToneProfile { get; set; } = string.Empty;
+
+        public bool UseToneProfile { get; set; }
+
         public bool IsConfigured
         {
             get
