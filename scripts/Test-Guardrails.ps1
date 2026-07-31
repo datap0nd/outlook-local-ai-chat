@@ -236,7 +236,7 @@ if (-not $draftSource.Contains("mail.HTMLBody") -or
 $safeHtmlPath = Join-Path $sourceRoot "Outlook\SafeDraftHtml.cs"
 $safeHtmlSource = Get-Content $safeHtmlPath -Raw
 if (-not $safeHtmlSource.Contains("WebUtility.HtmlEncode") -or
-    -not $safeHtmlSource.Contains('html.Append("<strong>")') -or
+    -not $safeHtmlSource.Contains('output.Append("<strong>")') -or
     -not $safeHtmlSource.Contains('"<h2 style=') -or
     -not $safeHtmlSource.Contains('"<ul style=') -or
     -not $safeHtmlSource.Contains('"<hr style=') -or
