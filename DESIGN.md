@@ -147,7 +147,7 @@ The palette is mostly Windows system color roles, with a fixed Outlook-adjacent 
 
 ## Layout
 
-The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 92 pixels high and includes the selected subject and exact active model, followed by a compact 38-pixel toolbar. The transcript consumes all remaining flexible height. The 154-pixel composer band and 64-pixel status band remain anchored at the bottom.
+The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 92 pixels high and includes either the selected subject or five-email working-set count plus the exact active model, followed by a compact 38-pixel toolbar. The transcript consumes all remaining flexible height. The 154-pixel composer band and 64-pixel status band remain anchored at the bottom.
 
 Horizontal content padding is 14 pixels in the sidebar work areas. The toolbar uses 8 pixels, while the modal settings form uses 24 pixels. Vertical rhythm is compact, generally 3 to 10 pixels between related controls. The transcript stays visually open and scrolls vertically instead of becoming a stack of cards.
 
@@ -182,20 +182,21 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 ### Mailbox Scope Strip
 
 - **Character:** Quiet context anchor, not a card.
-- **Structure:** Muted full-width band with a bold "MailAI" title, an ellipsized optional `Selected: subject`, and exactly `Model: model_name`.
-- **State:** When no email is selected, the same region explicitly says mailbox search remains available.
+- **Structure:** Muted full-width band with a bold "MailAI" title, an ellipsized optional `Selected: subject` or `Working set: N of 5 emails`, and exactly `Model: model_name`.
+- **State:** When no context is selected, the same region says mailbox search remains available. `/search person or topic` replaces the local five-email working set, while `/search clear` removes it.
 
 ### Toolbar Links
 
 - **Shape:** Borderless, square, 28-pixel-high buttons.
 - **Color:** White canvas with action-blue text in standard contrast.
-- **State:** Refresh selection, New chat, and Settings disable while a request is active. Native focus and disabled rendering remain visible.
+- **State:** Refresh selection, New chat, and Settings disable while a request is active. Refresh accepts one selected email or a Ctrl+click selection of up to five. Native focus and disabled rendering remain visible.
 
 ### Transcript
 
 - **Character:** A spacious, read-only plain-text document.
 - **Structure:** Borderless white surface with vertical scrolling and no automatic URL detection.
 - **Turns:** Speaker names are bold. "You" uses the action color; "Assistant" uses primary text. Context-loading entries are italic secondary text and endpoint errors use explicit diagnostic codes.
+- **Working-set review:** `/search` results and imported multi-selections are listed as date, sender, and subject before any normal prompt can load bodies. The copy tells the user to search again if the set is wrong.
 - **Accessibility:** Accessible name is "MailAI conversation"; the description identifies it as a plain-text mailbox conversation and context-loading ledger.
 
 ### Composer
@@ -240,10 +241,11 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 
 ### Do:
 
-- **Do** keep mailbox scope and optional selected-message identity visible before conversation content.
+- **Do** keep mailbox scope and optional selected-message or working-set identity visible before conversation content.
 - **Do** state that Inbox and Sent Items are available only through bounded read tools.
 - **Do** keep the automatic local intent boundary visible and replace its guidance with linked-draft state after creation.
 - **Do** keep `Selected: subject` at the top and hide repeated `RE:`, `FW:`, and `FWD:` display prefixes.
+- **Do** cap `/search`, Outlook multi-selection, and request-wide body loading at five emails.
 - **Do** say "unsent draft" and "for your review" in successful draft status text.
 - **Do** inherit Windows system fonts, focus behavior, text scaling, and high-contrast colors.
 - **Do** preserve keyboard operation, including Ctrl+Enter to send, Enter to save settings, and Escape to cancel settings.

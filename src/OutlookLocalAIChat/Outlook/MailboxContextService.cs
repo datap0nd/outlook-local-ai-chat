@@ -28,7 +28,11 @@ namespace OutlookLocalAIChat.Outlook
         {
             var boundedQuery = TextBoundary.PlainText(query, 240);
             var boundedDays = Math.Max(1, Math.Min(3650, daysBack));
-            var boundedResults = Math.Max(1, Math.Min(20, maxResults));
+            var boundedResults = Math.Max(
+                1,
+                Math.Min(
+                    MailboxWorkingSet.MaxMessages,
+                    maxResults));
             var cutoff = DateTime.Now.AddDays(-boundedDays);
             var hits = new List<MailboxSearchHit>();
 

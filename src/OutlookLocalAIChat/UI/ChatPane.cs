@@ -79,6 +79,8 @@ namespace OutlookLocalAIChat.UI
             new OpenAiCompatibleClient();
         private readonly List<ChatTurn> _history =
             new List<ChatTurn>();
+        private readonly List<MessageSnapshot> _workingMessages =
+            new List<MessageSnapshot>();
         private readonly RichTextBox _transcript =
             new RichTextBox();
         private readonly TextBox _composer = new TextBox();
@@ -118,7 +120,9 @@ namespace OutlookLocalAIChat.UI
 
         internal static ChatPane LastCreated { get; private set; }
 
-        internal void Initialize(object outlookApplication)
+        internal void Initialize(
+            object outlookApplication,
+            bool refreshSelection = true)
         {
             if (_outlookApplication != null)
             {
@@ -129,7 +133,10 @@ namespace OutlookLocalAIChat.UI
                 throw new ArgumentNullException(nameof(outlookApplication));
             _draftTools = new DraftToolHost(
                 _outlookApplication);
-            RefreshSelectedMessage();
+            if (refreshSelection)
+            {
+                RefreshSelectedMessage();
+            }
             UpdateDraftState();
             _composer.Focus();
         }
@@ -162,6 +169,7 @@ namespace OutlookLocalAIChat.UI
             }
             catch (Exception exception)
             {
+                _workingMessages.Clear();
                 _selectedMessage = null;
                 SetScopeUnavailable(
                     "No selected email. Mailbox search is still available.");
@@ -174,20 +182,31 @@ namespace OutlookLocalAIChat.UI
 
         public void UseRibbonSelection(object selection)
         {
-            if (_outlookApplication == null || selection == null)
+            if (_outlookApplication == null)
             {
-                RefreshSelectedMessage();
                 return;
             }
 
             try
             {
-                SetSelectedMessage(
-                    new MessageReader(_outlookApplication)
-                        .CaptureSelection(selection));
-                SetStatus(
-                    "Selected email added. Ask about it or let the model load related mailbox context.",
-                    false);
+                var reader = new MessageReader(
+                    _outlookApplication);
+                var messages = selection == null
+                    ? reader.CaptureActiveSelectionMany()
+                    : reader.CaptureSelectionMany(selection);
+                if (messages.Count == 1)
+                {
+                    SetSelectedMessage(messages[0]);
+                    SetStatus(
+                        "Selected email added. Its body is loaded only if the model requests it.",
+                        false);
+                }
+                else
+                {
+                    SetWorkingMessages(
+                        messages,
+                        messages.Count + " emails selected in Outlook");
+                }
             }
             catch (Exception exception)
             {
@@ -197,6 +216,166 @@ namespace OutlookLocalAIChat.UI
                     "EMAIL_SELECTION_FAILED");
                 SetStatus(FirstLine(details), true);
             }
+        }
+
+        private void HandleLocalSearchCommand(
+            string prompt,
+            LocalSearchCommand command)
+        {
+            AppendTurn("You", prompt, OutlookBlue);
+            _composer.Clear();
+            switch (command.Kind)
+            {
+                case LocalSearchCommandKind.Help:
+                    AppendContext(
+                        "Use /search <person or topic> to replace the working set with " +
+                        "the newest five matching emails from Inbox and Sent Items. " +
+                        "Use /search clear to remove the working set.");
+                    SetStatus(
+                        "Search help shown. No email context changed.",
+                        false);
+                    return;
+                case LocalSearchCommandKind.Clear:
+                    _workingMessages.Clear();
+                    _selectedMessage = null;
+                    SetScopeUnavailable(
+                        "No working set. Use /search or select email in Outlook.");
+                    AppendContext(
+                        "Working set cleared. No email bodies are loaded.");
+                    SetStatus(
+                        "Working set cleared.",
+                        false);
+                    return;
+                case LocalSearchCommandKind.Search:
+                    SearchWorkingMessages(command.Query);
+                    return;
+                default:
+                    return;
+            }
+        }
+
+        private void SearchWorkingMessages(string query)
+        {
+            if (_outlookApplication == null)
+            {
+                SetStatus(
+                    "[OUTLOOK_NOT_READY] Outlook is still initializing.",
+                    true);
+                return;
+            }
+
+            UseWaitCursor = true;
+            SetStatus(
+                "Searching Outlook locally for the newest five matches...",
+                false);
+            try
+            {
+                var hits = new MailboxContextService(
+                    _outlookApplication)
+                    .Search(
+                        query,
+                        "all",
+                        3650,
+                        MailboxWorkingSet.MaxMessages);
+                var messages = new List<MessageSnapshot>();
+                foreach (var hit in hits)
+                {
+                    messages.Add(hit.Message);
+                }
+
+                if (messages.Count == 0)
+                {
+                    AppendContext(
+                        "No emails matched '" + query + "'. " +
+                        (_workingMessages.Count > 0
+                            ? "The previous working set was kept."
+                            : "No working set was created.") +
+                        " Refine the person or topic and run /search again.");
+                    SetStatus(
+                        "No matching emails. Refine the query and try /search again.",
+                        true);
+                    return;
+                }
+
+                SetWorkingMessages(
+                    messages,
+                    "Search: " + query);
+            }
+            catch (Exception exception)
+            {
+                Log.Error("LocalMailboxSearch", exception);
+                var details = DiagnosticDetails.ForException(
+                    exception,
+                    "LOCAL_SEARCH_FAILED");
+                AppendError(details);
+                SetStatus(FirstLine(details), true);
+            }
+            finally
+            {
+                UseWaitCursor = false;
+            }
+        }
+
+        private void SetWorkingMessages(
+            IEnumerable<MessageSnapshot> messages,
+            string source)
+        {
+            var bounded = MailboxWorkingSet.Normalize(messages);
+            _workingMessages.Clear();
+            foreach (var message in bounded)
+            {
+                _workingMessages.Add(message);
+            }
+
+            _selectedMessage = null;
+            _scopeTitle.Text = "MailAI";
+            _scopeMeta.Text =
+                "Working set: " +
+                _workingMessages.Count +
+                " of 5 emails";
+            AppendContext(
+                BuildWorkingSetSummary(source, _workingMessages));
+            SetStatus(
+                "Working set ready. Run /search again to replace it, or ask MailAI to work on these emails.",
+                false);
+        }
+
+        private static string BuildWorkingSetSummary(
+            string source,
+            IReadOnlyList<MessageSnapshot> messages)
+        {
+            var lines = new List<string>
+            {
+                TextBoundary.SingleLine(source, 260) +
+                ". These are the only emails available to the next AI request:"
+            };
+            for (var index = 0; index < messages.Count; index++)
+            {
+                var message = messages[index];
+                var sender = TextBoundary.SingleLine(
+                    message.Sender,
+                    120);
+                var subject = TextBoundary.SingleLine(
+                    SubjectDisplay.Clean(message.Subject),
+                    180);
+                lines.Add(
+                    (index + 1) + ". " +
+                    (message.ReceivedAt?.ToString("yyyy-MM-dd HH:mm") ??
+                        "Unknown date") +
+                    " | " +
+                    (sender.Length > 0
+                        ? sender
+                        : "Unknown sender") +
+                    " | " +
+                    (subject.Length > 0
+                        ? subject
+                        : "(No subject)"));
+            }
+
+            lines.Add(
+                "If these are wrong, refine the query and run /search again. " +
+                "Bodies are not sent until a normal prompt needs them.");
+            return string.Join(Environment.NewLine, lines);
         }
 
         internal void Shutdown()
@@ -283,7 +462,7 @@ namespace OutlookLocalAIChat.UI
             _scopeMeta.Dock = DockStyle.Fill;
             _scopeMeta.ForeColor = TextSecondary;
             _scopeMeta.Text =
-                "No selected email. Mailbox search is available.";
+                "No context selected. Use /search or select emails.";
 
             _modelMeta.AutoEllipsis = true;
             _modelMeta.Dock = DockStyle.Fill;
@@ -455,7 +634,7 @@ namespace OutlookLocalAIChat.UI
             _status.AccessibleName = "Chat status";
             _status.AccessibleRole = AccessibleRole.StatusBar;
             _status.Text =
-                "Mailbox reads are bounded. Draft creation requires one-shot authorization.";
+                "Mailbox reads are capped at five emails. MailAI cannot send.";
             panel.Controls.Add(_status);
             return panel;
         }
@@ -481,6 +660,13 @@ namespace OutlookLocalAIChat.UI
                 return;
             }
 
+            var localCommand = LocalSearchCommand.Parse(prompt);
+            if (localCommand.Kind != LocalSearchCommandKind.None)
+            {
+                HandleLocalSearchCommand(prompt, localCommand);
+                return;
+            }
+
             if (_outlookApplication == null)
             {
                 SetStatus(
@@ -499,6 +685,8 @@ namespace OutlookLocalAIChat.UI
             }
 
             var requestSelectedMessage = _selectedMessage;
+            var requestWorkingMessages =
+                new List<MessageSnapshot>(_workingMessages);
             var hasLinkedDraft =
                 _draftTools != null &&
                 _draftTools.HasActiveDraft;
@@ -519,6 +707,7 @@ namespace OutlookLocalAIChat.UI
             {
                 var response = await CompleteMailboxChatAsync(
                     requestSelectedMessage,
+                    requestWorkingMessages,
                     prompt,
                     draftAuthorization,
                     _requestCancellation.Token);
@@ -593,6 +782,7 @@ namespace OutlookLocalAIChat.UI
 
         private async Task<string> CompleteMailboxChatAsync(
             MessageSnapshot selectedMessage,
+            IReadOnlyList<MessageSnapshot> workingMessages,
             string prompt,
             OneShotDraftAuthorization draftAuthorization,
             CancellationToken cancellationToken)
@@ -607,10 +797,12 @@ namespace OutlookLocalAIChat.UI
                 prompt,
                 draftAuthorization.CanCreate,
                 activeDraft,
-                draftAuthorization.CanUpdate);
+                draftAuthorization.CanUpdate,
+                workingMessages);
             var mailboxTools = new MailboxToolHost(
                 _outlookApplication,
-                selectedMessage);
+                selectedMessage,
+                workingMessages);
             for (var round = 0;
                  round <= TextBoundary.MaxToolRounds;
                  round++)
@@ -696,11 +888,13 @@ namespace OutlookLocalAIChat.UI
             }
 
             _history.Clear();
+            _workingMessages.Clear();
             _draftTools?.Dispose();
             _draftTools = _outlookApplication == null
                 ? null
                 : new DraftToolHost(_outlookApplication);
             _transcript.Clear();
+            RefreshSelectedMessage();
             ShowWelcome();
             UpdateDraftState();
             SetStatus(
@@ -902,6 +1096,7 @@ namespace OutlookLocalAIChat.UI
 
         private void SetSelectedMessage(MessageSnapshot message)
         {
+            _workingMessages.Clear();
             _selectedMessage = message ??
                 throw new ArgumentNullException(nameof(message));
             _scopeTitle.Text = "MailAI";
@@ -927,11 +1122,12 @@ namespace OutlookLocalAIChat.UI
         {
             AppendStyledBlock(
                 "Ready",
-                "Ask across Inbox and Sent Items. The model decides which bounded " +
-                "messages to load, and every context operation appears here.\n\n" +
+                "Ask across Inbox and Sent Items. MailAI loads no more than five " +
+                "email bodies, and every context operation appears here.\n\n" +
                 "Try:\n" +
-                "- Summarize what needs a reply this week.\n" +
-                "- Find decisions about a project or topic.\n" +
+                "- /search person or topic\n" +
+                "- Ctrl+click up to five emails, then right-click Send to MailAI.\n" +
+                "- Ask MailAI to summarize or compare the working set.\n" +
                 "- Find a message and create a concise reply draft.\n" +
                 "- Once it opens, ask to shorten it or bold an exact section.",
                 TextSecondary,

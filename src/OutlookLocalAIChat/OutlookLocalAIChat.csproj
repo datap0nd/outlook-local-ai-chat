@@ -53,6 +53,7 @@
     <Compile Include="Chat\ChatModels.cs" />
     <Compile Include="Chat\ChatRequestFactory.cs" />
     <Compile Include="Chat\DraftToolCatalog.cs" />
+    <Compile Include="Chat\LocalSearchCommand.cs" />
     <Compile Include="Chat\MailboxToolCatalog.cs" />
     <Compile Include="Chat\OpenAiCompatibleClient.cs" />
     <Compile Include="Configuration\AppSettings.cs" />
@@ -64,6 +65,7 @@
     <Compile Include="Outlook\DraftToolHost.cs" />
     <Compile Include="Outlook\MailboxContextService.cs" />
     <Compile Include="Outlook\MailboxToolHost.cs" />
+    <Compile Include="Outlook\MailboxWorkingSet.cs" />
     <Compile Include="Outlook\MessageReader.cs" />
     <Compile Include="Outlook\MessageSnapshot.cs" />
     <Compile Include="Outlook\SafeDraftHtml.cs" />

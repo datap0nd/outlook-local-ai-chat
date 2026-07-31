@@ -64,35 +64,46 @@ email during the check.
 ## Use
 
 1. Open **MailAI**. The chat appears as a sidebar inside Outlook.
-   You can also right-click one email and choose **Send to MailAI**. The
-   sidebar opens with `Selected: subject` at the top. Common `RE:`, `FW:`, and
-   `FWD:` prefixes are hidden in that display.
-2. Ask a mailbox question, such as "What did I agree to send this week?"
-3. The model can search Inbox and Sent Items, inspect selected results, and load
-   a conversation thread when needed.
-4. The sidebar records which bounded context operations ran.
-5. Ask explicitly, for example "create a reply draft" or "write an email."
+   You can also right-click one selected email and choose **Send to MailAI**.
+   The sidebar opens with `Selected: subject` at the top. Common `RE:`, `FW:`,
+   and `FWD:` prefixes are hidden in that display.
+2. To choose a bounded group first, enter `/search person or topic`. MailAI
+   searches locally and keeps the newest five matching Inbox or Sent Items
+   emails as the working set. No email body is sent during this command.
+3. Review the listed subjects and send another `/search` to replace the set if
+   it is wrong. Use `/search clear` to remove it.
+4. Alternatively, Ctrl+click two to five emails in Outlook, right-click the
+   selection, and choose **Send to MailAI**. Those emails become the same
+   locked working set.
+5. Ask a normal mailbox question. When a working set exists, the model can read
+   only those emails. Without one, it may perform one bounded mailbox search
+   and load no more than five unique email bodies for the request.
+6. The sidebar records which bounded context operations ran.
+7. Ask explicitly, for example "create a reply draft" or "write an email."
    Local code recognizes that drafting intent and exposes one creation attempt
    for that request. The draft opens unsent in Outlook.
-6. A mailbox question without explicit drafting language cannot expose draft
+8. A mailbox question without explicit drafting language cannot expose draft
    creation. Loaded email text and model output cannot authorize it.
-7. The same Outlook draft stays linked to that chat. Follow-up instructions such
+9. The same Outlook draft stays linked to that chat. Follow-up instructions such
    as "make it shorter" or "bold the deadline" update and redisplay that exact
    unsent item. No second draft is created.
-8. Review, edit, address, and send the message using Outlook's normal editor.
+10. Review, edit, address, and send the message using Outlook's normal editor.
 
 Selecting an email is optional for mailbox questions. When one is selected, the
 model receives its metadata and may request its body using the temporary
-`selected` handle. The conversation remains in memory until **New chat** is
-chosen or Outlook closes.
+`selected` handle. A two-to-five-email selection is stored as a locked working
+set with `context1` through `context5` handles. The conversation and working set
+remain in memory until **New chat**, `/search clear`, or Outlook closes.
 
 ## Hard security boundary
 
 The model is not given general Outlook access. Draft creation is a narrowly
 scoped exception, not a general mutation permission.
 
-- Every request exposes exactly three read-only tools: `search_mailbox`,
-  `read_messages`, and `read_thread`.
+- A request without a working set exposes three read-only tools:
+  `search_mailbox`, `read_messages`, and `read_thread`. A request with a locked
+  working set exposes only `read_messages`, and only for its five approved
+  handles.
 - `create_draft` is added only when local code recognizes an explicit drafting
   instruction in the latest user-written prompt, such as "create a draft" or
   "write a reply." Model output and email content never enter that decision.
@@ -140,16 +151,22 @@ See [SECURITY.md](SECURITY.md) for the full threat model.
 
 Every chat request initially sends the configured endpoint:
 
-- selected email metadata, when an email is selected;
+- selected email metadata, or metadata for up to five working-set emails;
 - up to 12 recent chat turns;
 - the current prompt.
 
 The model may then request:
 
-- up to 20 bounded result summaries from the primary Inbox and Sent Items;
-- up to four bounded message bodies per tool call;
-- up to 12 messages from one Outlook conversation;
+- one search with up to five bounded result summaries from the primary Inbox
+  and Sent Items when no working set is locked;
+- no more than five unique message bodies across the entire request;
+- conversation messages only within that same request-wide five-body limit;
 - at most four tool calls per round and four context-retrieval rounds.
+
+`/search` is handled locally before an LLM request is created. It returns at
+most five metadata matches and does not transmit bodies. A later normal prompt
+sends the working-set metadata and exposes only the body-read tool for those
+exact handles.
 
 When the latest user prompt explicitly asks to create or open a draft, local
 intent rules expose `create_draft` for that request. Its bounded arguments may

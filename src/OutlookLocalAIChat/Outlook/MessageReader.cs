@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using OutlookLocalAIChat.Security;
 
@@ -103,29 +104,108 @@ namespace OutlookLocalAIChat.Outlook
             }
         }
 
-        public MessageSnapshot CaptureSelection(object selection)
+        public IReadOnlyList<MessageSnapshot> CaptureActiveSelectionMany()
         {
-            if (selection == null)
-            {
-                throw new ArgumentNullException(nameof(selection));
-            }
-
-            object item = null;
+            object explorer = null;
+            object selection = null;
             try
             {
-                dynamic selectedItems = selection;
-                if (selectedItems.Count != 1)
+                dynamic application = _outlookApplication;
+                explorer = application.ActiveExplorer();
+                if (explorer == null)
                 {
                     throw new InvalidOperationException(
-                        "Select exactly one email before using Send to MailAI.");
+                        "Open an Outlook mailbox view and select one to five emails.");
                 }
 
-                item = selectedItems.Item(1);
-                return CaptureItem(item);
+                dynamic activeExplorer = explorer;
+                selection = activeExplorer.Selection;
+                return CaptureSelectionMany(selection);
             }
             finally
             {
-                Release(item);
+                Release(selection);
+                Release(explorer);
+            }
+        }
+
+        public MessageSnapshot CaptureSelection(object selection)
+        {
+            var messages = CaptureSelectionMany(selection);
+            if (messages.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    "Select exactly one email before using this action.");
+            }
+
+            return messages[0];
+        }
+
+        public IReadOnlyList<MessageSnapshot> CaptureSelectionMany(
+            object context)
+        {
+            if (context == null)
+            {
+                throw new ArgumentNullException(nameof(context));
+            }
+
+            object selection = context;
+            var releaseSelection = false;
+            try
+            {
+                int count;
+                try
+                {
+                    dynamic selectedItems = selection;
+                    count = Convert.ToInt32(selectedItems.Count);
+                }
+                catch
+                {
+                    dynamic window = context;
+                    selection = window.Selection;
+                    releaseSelection = !ReferenceEquals(
+                        selection,
+                        context);
+                    dynamic selectedItems = selection;
+                    count = Convert.ToInt32(selectedItems.Count);
+                }
+
+                if (count < 1)
+                {
+                    throw new InvalidOperationException(
+                        "Select at least one email before using Send to MailAI.");
+                }
+
+                if (count > MailboxWorkingSet.MaxMessages)
+                {
+                    throw new InvalidOperationException(
+                        "Select no more than five emails before using Send to MailAI.");
+                }
+
+                var messages = new List<MessageSnapshot>(count);
+                dynamic items = selection;
+                for (var index = 1; index <= count; index++)
+                {
+                    object item = null;
+                    try
+                    {
+                        item = items.Item(index);
+                        messages.Add(CaptureItem(item));
+                    }
+                    finally
+                    {
+                        Release(item);
+                    }
+                }
+
+                return MailboxWorkingSet.Normalize(messages);
+            }
+            finally
+            {
+                if (releaseSelection)
+                {
+                    Release(selection);
+                }
             }
         }
 

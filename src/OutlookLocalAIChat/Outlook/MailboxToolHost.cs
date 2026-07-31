@@ -14,7 +14,8 @@ namespace OutlookLocalAIChat.Outlook
     {
         private const int MaxDirectMessageBodyCharacters = 6000;
         private const int MaxThreadMessageBodyCharacters = 2000;
-        private const int MaxThreadMessages = 12;
+        private const int MaxThreadMessages =
+            MailboxWorkingSet.MaxMessages;
 
         private readonly MailboxContextService _mailbox;
         private readonly JavaScriptSerializer _serializer =
@@ -22,14 +23,42 @@ namespace OutlookLocalAIChat.Outlook
         private readonly Dictionary<string, MessageSnapshot> _handles =
             new Dictionary<string, MessageSnapshot>(
                 StringComparer.Ordinal);
+        private readonly HashSet<string> _loadedBodyHandles =
+            new HashSet<string>(StringComparer.Ordinal);
+        private readonly bool _workingSetOnly;
+        private bool _searchExecuted;
         private int _nextHandle = 1;
 
         public MailboxToolHost(
             object outlookApplication,
             MessageSnapshot selectedMessage)
+            : this(
+                outlookApplication,
+                selectedMessage,
+                null)
+        {
+        }
+
+        public MailboxToolHost(
+            object outlookApplication,
+            MessageSnapshot selectedMessage,
+            IReadOnlyList<MessageSnapshot> workingMessages)
         {
             _mailbox = new MailboxContextService(outlookApplication);
-            if (selectedMessage != null)
+            var workingSet = MailboxWorkingSet.Normalize(
+                workingMessages);
+            _workingSetOnly = workingSet.Count > 0;
+            if (_workingSetOnly)
+            {
+                for (var index = 0;
+                     index < workingSet.Count;
+                     index++)
+                {
+                    _handles[MailboxWorkingSet.HandleAt(index)] =
+                        workingSet[index];
+                }
+            }
+            else if (selectedMessage != null)
             {
                 _handles["selected"] = selectedMessage;
             }
@@ -101,6 +130,23 @@ namespace OutlookLocalAIChat.Outlook
             string callId,
             IDictionary<string, object> arguments)
         {
+            if (_workingSetOnly)
+            {
+                return Error(
+                    callId,
+                    "MAILBOX_WORKING_SET_LOCKED",
+                    "A user-approved working set is active. Search and thread expansion are disabled for this request.");
+            }
+
+            if (_searchExecuted)
+            {
+                return Error(
+                    callId,
+                    "MAILBOX_SEARCH_LIMIT_REACHED",
+                    "Only one mailbox search is allowed per request. Use /search to refine the working set.");
+            }
+
+            _searchExecuted = true;
             var query = GetString(arguments, "query", string.Empty);
             var folder = GetString(arguments, "folder", "all")
                 .ToLowerInvariant();
@@ -120,9 +166,9 @@ namespace OutlookLocalAIChat.Outlook
             var maxResults = GetInteger(
                 arguments,
                 "max_results",
-                10,
+                MailboxWorkingSet.MaxMessages,
                 1,
-                20);
+                MailboxWorkingSet.MaxMessages);
             var hits = _mailbox.Search(
                 query,
                 folder,
@@ -170,7 +216,7 @@ namespace OutlookLocalAIChat.Outlook
         {
             var handles = GetStringList(arguments, "handles")
                 .Distinct(StringComparer.Ordinal)
-                .Take(4)
+                .Take(MailboxWorkingSet.MaxMessages)
                 .ToArray();
             if (handles.Length == 0)
             {
@@ -181,6 +227,7 @@ namespace OutlookLocalAIChat.Outlook
             }
 
             var messages = new List<object>();
+            var loadedCount = 0;
             foreach (var handle in handles)
             {
                 MessageSnapshot message;
@@ -194,11 +241,34 @@ namespace OutlookLocalAIChat.Outlook
                     continue;
                 }
 
+                if (_loadedBodyHandles.Contains(handle))
+                {
+                    messages.Add(new Dictionary<string, object>
+                    {
+                        { "handle", handle },
+                        { "already_loaded", true }
+                    });
+                    continue;
+                }
+
+                if (_loadedBodyHandles.Count >=
+                    MailboxWorkingSet.MaxMessages)
+                {
+                    messages.Add(new Dictionary<string, object>
+                    {
+                        { "handle", handle },
+                        { "error_code", "MAILBOX_CONTEXT_LIMIT_REACHED" }
+                    });
+                    continue;
+                }
+
                 messages.Add(
                     SerializeMessage(
                         handle,
                         message,
                         MaxDirectMessageBodyCharacters));
+                _loadedBodyHandles.Add(handle);
+                loadedCount++;
             }
 
             return Success(
@@ -209,14 +279,25 @@ namespace OutlookLocalAIChat.Outlook
                     { "messages", messages }
                 },
                 "Loaded " +
-                messages.Count.ToString(CultureInfo.InvariantCulture) +
-                " message bodies.");
+                loadedCount.ToString(CultureInfo.InvariantCulture) +
+                " new message bodies. Request total: " +
+                _loadedBodyHandles.Count.ToString(
+                    CultureInfo.InvariantCulture) +
+                " of 5.");
         }
 
         private MailboxToolResult ReadThread(
             string callId,
             IDictionary<string, object> arguments)
         {
+            if (_workingSetOnly)
+            {
+                return Error(
+                    callId,
+                    "MAILBOX_WORKING_SET_LOCKED",
+                    "Thread expansion is disabled while a user-approved working set is active.");
+            }
+
             var handle = GetString(arguments, "handle", string.Empty);
             MessageSnapshot source;
             if (!_handles.TryGetValue(handle, out source))
@@ -227,6 +308,16 @@ namespace OutlookLocalAIChat.Outlook
                     "The message handle is unknown or expired.");
             }
 
+            var remaining = MailboxWorkingSet.MaxMessages -
+                _loadedBodyHandles.Count;
+            if (remaining <= 0)
+            {
+                return Error(
+                    callId,
+                    "MAILBOX_CONTEXT_LIMIT_REACHED",
+                    "Five unique message bodies are already loaded for this request.");
+            }
+
             var conversation = _mailbox.ReadConversation(
                 source,
                 MaxThreadMessages);
@@ -234,11 +325,23 @@ namespace OutlookLocalAIChat.Outlook
             foreach (var message in conversation)
             {
                 var messageHandle = Register(message);
+                if (_loadedBodyHandles.Contains(messageHandle))
+                {
+                    continue;
+                }
+
+                if (_loadedBodyHandles.Count >=
+                    MailboxWorkingSet.MaxMessages)
+                {
+                    break;
+                }
+
                 messages.Add(
                     SerializeMessage(
                         messageHandle,
                         message,
                         MaxThreadMessageBodyCharacters));
+                _loadedBodyHandles.Add(messageHandle);
             }
 
             return Success(
@@ -252,7 +355,10 @@ namespace OutlookLocalAIChat.Outlook
                 },
                 "Loaded " +
                 messages.Count.ToString(CultureInfo.InvariantCulture) +
-                " messages from the conversation.");
+                " new conversation messages. Request total: " +
+                _loadedBodyHandles.Count.ToString(
+                    CultureInfo.InvariantCulture) +
+                " of 5.");
         }
 
         private object SerializeMessage(

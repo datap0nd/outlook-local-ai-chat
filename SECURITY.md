@@ -12,7 +12,7 @@ feedback.
 ## Capability separation
 
 ```text
-Prompt + optional selected-message metadata
+Prompt + optional selected-message or five-email working-set metadata
     |
     v
 OpenAiCompatibleClient -> messages + read-only tool schema -> endpoint
@@ -54,18 +54,22 @@ mutation attempt per user request.
 
 ## Enforced invariants
 
-1. The model request schema always exposes exactly `search_mailbox`,
-   `read_messages`, and `read_thread`. It exposes `create_draft` only when local
+1. Without a working set, the model request schema exposes exactly
+   `search_mailbox`, `read_messages`, and `read_thread`. With a locked working
+   set, it exposes only `read_messages` and only accepts its `context1` through
+   `context5` handles. It exposes `create_draft` only when local
    code recognizes drafting intent in the latest user prompt. Once a draft is
    linked, recognized revision intent may expose `update_draft` instead. It
    never exposes both.
 2. `MailboxToolHost` has one public dispatcher and rejects any tool name outside
    that compile-time allowlist.
-3. Model-selected searches are limited to the primary Inbox and Sent Items.
-   Results, body lengths, thread lengths, calls per round, and tool rounds are
-   capped.
+3. Model-selected searches are limited to one search of the primary Inbox and
+   Sent Items per request and return no more than five summaries. No request can
+   load more than five unique message bodies, including thread reads. Body
+   lengths, calls per round, and tool rounds are also capped.
 4. Search results receive temporary handles. Read operations accept only handles
-   issued within the current request, plus the optional `selected` handle.
+   issued within the current request, plus the optional `selected` handle or a
+   locally approved five-email working set.
    Reply creation also requires one of those exact handles. Missing, expired,
    and fabricated handles are rejected without consuming draft permission, and
    the host never substitutes the selected or latest item.
@@ -91,8 +95,13 @@ mutation attempt per user request.
     at most 12 exact bold phrases. BCC and arbitrary HTML are not accepted.
 12. Source scans fail on Outlook send, delete, move, Outbox, or send/receive
    capabilities.
-13. Conversation history is held in memory and cleared by **New chat** or Outlook
-    shutdown.
+13. Conversation history and the active working set are held in memory and
+    cleared by **New chat** or Outlook shutdown. `/search clear` removes only
+    the current selection and working set.
+14. `/search` is parsed and executed locally without calling the endpoint. It
+    stores only the newest five matching metadata records. A later normal prompt
+    exposes only those handles, so the model cannot broaden the approved set.
+    Ctrl+click multi-selection uses the same one-to-five normalization and cap.
 
 The system prompt reinforces these limits, but no security property depends on
 the model obeying it.

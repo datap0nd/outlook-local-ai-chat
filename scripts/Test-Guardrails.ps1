@@ -26,9 +26,11 @@ $factoryPath = Join-Path $sourceRoot "Chat\ChatRequestFactory.cs"
 $catalogPath = Join-Path $sourceRoot "Chat\MailboxToolCatalog.cs"
 $draftCatalogPath = Join-Path $sourceRoot "Chat\DraftToolCatalog.cs"
 $toolHostPath = Join-Path $sourceRoot "Outlook\MailboxToolHost.cs"
+$mailboxContextPath = Join-Path $sourceRoot "Outlook\MailboxContextService.cs"
 $draftToolHostPath = Join-Path $sourceRoot "Outlook\DraftToolHost.cs"
 $chatPanePath = Join-Path $sourceRoot "UI\ChatPane.cs"
 $intentPath = Join-Path $sourceRoot "Security\DraftIntentPolicy.cs"
+$workingSetPath = Join-Path $sourceRoot "Outlook\MailboxWorkingSet.cs"
 $catalogSource = Get-Content $catalogPath -Raw
 $draftCatalogSource = Get-Content $draftCatalogPath -Raw
 $modelFacingSource =
@@ -126,6 +128,37 @@ if ($chatPaneSource.Contains("_allowOneDraft") -or
     -not (Test-Path $intentPath) -or
     -not $chatPaneSource.Contains("UpdateDraftState()")) {
     throw "Automatic local draft-intent authorization is incomplete."
+}
+
+$workingSetSource = Get-Content $workingSetPath -Raw
+$mailboxContextSource = Get-Content $mailboxContextPath -Raw
+$workingSetBoundarySource =
+    $workingSetSource +
+    $toolHostSource
+foreach ($requiredBoundary in @(
+    "public const int MaxMessages = 5",
+    "MAILBOX_WORKING_SET_LOCKED",
+    "MAILBOX_CONTEXT_LIMIT_REACHED",
+    "MAILBOX_SEARCH_LIMIT_REACHED",
+    "_loadedBodyHandles",
+    "_searchExecuted"
+)) {
+    if (-not $workingSetBoundarySource.Contains($requiredBoundary)) {
+        throw "Five-message mailbox boundary is missing $requiredBoundary."
+    }
+}
+
+if (-not $mailboxContextSource.Contains(
+        "Math.Min") -or
+    -not $mailboxContextSource.Contains(
+        "MailboxWorkingSet.MaxMessages")) {
+    throw "The underlying Outlook search service is not capped to the working-set limit."
+}
+
+if (-not $chatPaneSource.Contains("LocalSearchCommand.Parse(prompt)") -or
+    -not $chatPaneSource.Contains("CaptureSelectionMany(selection)") -or
+    -not $chatPaneSource.Contains("MailboxWorkingSet.MaxMessages")) {
+    throw "Local search or Outlook multi-selection is not bounded to the working set."
 }
 
 $draftPath = Join-Path $sourceRoot "Outlook\DraftService.cs"

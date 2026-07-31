@@ -93,11 +93,18 @@ namespace OutlookLocalAIChat
         public void OnSendToAi(object control)
         {
             var selection = GetRibbonContext(control);
-            OnOpenChat(control);
+            OpenChat(control, false);
             _chatPane?.UseRibbonSelection(selection);
         }
 
         public void OnOpenChat(object control)
+        {
+            OpenChat(control, true);
+        }
+
+        private void OpenChat(
+            object control,
+            bool refreshSelection)
         {
             try
             {
@@ -143,12 +150,17 @@ namespace OutlookLocalAIChat
                             "Outlook created the sidebar but its chat control was unavailable.");
                     }
 
-                    _chatPane.Initialize(_outlookApplication);
+                    _chatPane.Initialize(
+                        _outlookApplication,
+                        refreshSelection);
                     pane.Visible = true;
                 }
                 else
                 {
-                    _chatPane?.RefreshSelectedMessage();
+                    if (refreshSelection)
+                    {
+                        _chatPane?.RefreshSelectedMessage();
+                    }
                     dynamic pane = _taskPane;
                     pane.Visible = true;
                 }

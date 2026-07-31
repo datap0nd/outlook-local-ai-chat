@@ -56,6 +56,15 @@ namespace GuardrailTests
                     EndpointDiagnosticsExposeTransportDetails);
                 Run("Mailbox tools are read only", MailboxToolsAreReadOnly);
                 Run(
+                    "Local search command is explicit and bounded",
+                    LocalSearchCommandIsBounded);
+                Run(
+                    "Working set exposes only five approved emails",
+                    WorkingSetIsStrictlyBounded);
+                Run(
+                    "Outlook multi-selection accepts one to five emails",
+                    OutlookMultiSelectionIsBounded);
+                Run(
                     "Latest user prompt locally gates draft tools",
                     DraftToolsRequireLocalIntentAuthorization);
                 Run(
@@ -96,7 +105,7 @@ namespace GuardrailTests
                     "Chat pane is a registered COM control",
                     ChatPaneIsComControl);
                 Run(
-                    "Outlook ribbon includes single-message Send to AI",
+                    "Outlook ribbon includes Send to MailAI",
                     RibbonIncludesSendToAi);
                 Run(
                     "Selected subjects hide reply and forward prefixes",
@@ -350,7 +359,9 @@ namespace GuardrailTests
             var json = new JavaScriptSerializer().Serialize(request);
             Assert(
                 json.Contains("\"tools\"") &&
-                json.Contains("\"tool_choice\":\"auto\""),
+                json.Contains("\"tool_choice\":\"auto\"") &&
+                json.Contains("\"maximum\":5") &&
+                json.Contains("\"maxItems\":5"),
                 "Request does not expose bounded mailbox tools.");
             Assert(json.Contains("\"stream\":false"), "Streaming must be off.");
 
@@ -368,6 +379,144 @@ namespace GuardrailTests
                 names.SequenceEqual(expected),
                 "Unexpected mailbox tools: " +
                 string.Join(", ", names));
+        }
+
+        private static void LocalSearchCommandIsBounded()
+        {
+            var search = LocalSearchCommand.Parse(
+                "/search project topic");
+            var help = LocalSearchCommand.Parse("/search");
+            var clear = LocalSearchCommand.Parse(
+                "/SEARCH   clear");
+            var ordinary = LocalSearchCommand.Parse(
+                "/searching project topic");
+            var longSearch = LocalSearchCommand.Parse(
+                "/search " + new string('x', 500));
+
+            Assert(
+                search.Kind == LocalSearchCommandKind.Search &&
+                search.Query == "project topic" &&
+                help.Kind == LocalSearchCommandKind.Help &&
+                clear.Kind == LocalSearchCommandKind.Clear &&
+                ordinary.Kind == LocalSearchCommandKind.None &&
+                longSearch.Query.Length == 240,
+                "The local /search command contract is incomplete.");
+        }
+
+        private static void WorkingSetIsStrictlyBounded()
+        {
+            var messages = Enumerable.Range(1, 7)
+                .Select(index => new MessageSnapshot(
+                    "entry-" + index,
+                    "store",
+                    "Subject " + index,
+                    "Sender " + index,
+                    "Recipient",
+                    DateTime.UtcNow.AddMinutes(-index),
+                    "private-body-" + index))
+                .ToList();
+            var normalized = MailboxWorkingSet.Normalize(
+                messages.Concat(new[] { messages[0] }));
+            Assert(
+                normalized.Count == 5 &&
+                MailboxWorkingSet.MaxMessages == 5 &&
+                MailboxWorkingSet.HandleAt(0) == "context1" &&
+                MailboxWorkingSet.HandleAt(4) == "context5",
+                "The working-set normalization exceeded five unique emails.");
+
+            var request = MakeRequest(
+                new List<ChatTurn>(),
+                workingMessages: normalized);
+            var names = request.tools
+                .Select(tool => tool.function.name)
+                .ToArray();
+            var reference =
+                ((ChatCompletionInputMessage)
+                    request.messages[1]).content;
+            var system =
+                ((ChatCompletionInputMessage)
+                    request.messages[0]).content;
+            Assert(
+                names.SequenceEqual(new[] { "read_messages" }) &&
+                reference.Contains("<working_email_set") &&
+                reference.Contains("context1") &&
+                reference.Contains("context5") &&
+                !reference.Contains("private-body-") &&
+                system.Contains("working set") &&
+                system.Contains("Do not search"),
+                "A locked working set exposed search, threads, or email bodies.");
+
+            var host = new MailboxToolHost(
+                new FakeOutlookApplication(),
+                null,
+                normalized);
+            var loaded = host.Execute(
+                MailboxCall(
+                    "read-working-set",
+                    MailboxToolCatalog.ReadMessages,
+                    "{\"handles\":[\"context1\",\"context2\"," +
+                    "\"context3\",\"context4\",\"context5\"]}"));
+            var duplicate = host.Execute(
+                MailboxCall(
+                    "read-duplicate",
+                    MailboxToolCatalog.ReadMessages,
+                    "{\"handles\":[\"context1\"]}"));
+            var lockedSearch = host.Execute(
+                MailboxCall(
+                    "locked-search",
+                    MailboxToolCatalog.SearchMailbox,
+                    "{\"query\":\"anything\"}"));
+            var lockedThread = host.Execute(
+                MailboxCall(
+                    "locked-thread",
+                    MailboxToolCatalog.ReadThread,
+                    "{\"handle\":\"context1\"}"));
+            Assert(
+                loaded.StatusText.Contains("Request total: 5 of 5") &&
+                loaded.Content.Contains("private-body-1") &&
+                loaded.Content.Contains("private-body-5") &&
+                duplicate.Content.Contains("already_loaded") &&
+                lockedSearch.Content.Contains(
+                    "MAILBOX_WORKING_SET_LOCKED") &&
+                lockedThread.Content.Contains(
+                    "MAILBOX_WORKING_SET_LOCKED"),
+                "The working-set host bypassed its five-email lock.");
+        }
+
+        private static void OutlookMultiSelectionIsBounded()
+        {
+            var selection = new FakeSelection(
+                Enumerable.Range(1, 3)
+                    .Select(index =>
+                        (object)new FakeSelectedMailItem(
+                            "entry-" + index,
+                            "Subject " + index))
+                    .ToArray());
+            var reader = new MessageReader(new object());
+            var messages = reader.CaptureSelectionMany(
+                new FakeExplorerContext(selection));
+            Assert(
+                messages.Count == 3 &&
+                messages[0].EntryId == "entry-1" &&
+                messages[2].EntryId == "entry-3",
+                "Ctrl+click selection did not preserve the selected emails.");
+
+            var overflow = false;
+            try
+            {
+                reader.CaptureSelectionMany(
+                    new FakeSelection(
+                        new object[MailboxWorkingSet.MaxMessages + 1]));
+            }
+            catch (InvalidOperationException exception)
+            {
+                overflow = exception.Message.Contains(
+                    "no more than five");
+            }
+
+            Assert(
+                overflow,
+                "A selection larger than five emails was not rejected.");
         }
 
         private static void DraftToolsRequireLocalIntentAuthorization()
@@ -794,6 +943,23 @@ namespace GuardrailTests
             };
         }
 
+        private static ChatToolCall MailboxCall(
+            string id,
+            string name,
+            string arguments)
+        {
+            return new ChatToolCall
+            {
+                id = id,
+                type = "function",
+                function = new ChatToolCallFunction
+                {
+                    name = name,
+                    arguments = arguments
+                }
+            };
+        }
+
         private static void RequestSchemaIsBounded()
         {
             var fields = typeof(ChatCompletionRequest)
@@ -1158,7 +1324,8 @@ namespace GuardrailTests
             IReadOnlyList<ChatTurn> history,
             bool allowDraftCreate = false,
             DraftReference activeDraft = null,
-            bool allowDraftUpdate = false)
+            bool allowDraftUpdate = false,
+            IReadOnlyList<MessageSnapshot> workingMessages = null)
         {
             return ChatRequestFactory.Create(
                 "local-model",
@@ -1174,7 +1341,8 @@ namespace GuardrailTests
                 "Help me reply.",
                 allowDraftCreate,
                 activeDraft,
-                allowDraftUpdate);
+                allowDraftUpdate,
+                workingMessages);
         }
 
         private static void Assert(bool condition, string message)
@@ -1343,6 +1511,77 @@ namespace GuardrailTests
                 }
             }
         }
+    }
+
+    public sealed class FakeExplorerContext
+    {
+        public FakeExplorerContext(FakeSelection selection)
+        {
+            Selection = selection;
+        }
+
+        public FakeSelection Selection { get; }
+    }
+
+    public sealed class FakeSelection
+    {
+        private readonly object[] _items;
+
+        public FakeSelection(object[] items)
+        {
+            _items = items ?? new object[0];
+        }
+
+        public int Count
+        {
+            get { return _items.Length; }
+        }
+
+        public object Item(int index)
+        {
+            return _items[index - 1];
+        }
+    }
+
+    public sealed class FakeSelectedMailItem
+    {
+        public FakeSelectedMailItem(
+            string entryId,
+            string subject)
+        {
+            EntryID = entryId;
+            Subject = subject;
+            Parent = new FakeMailFolder();
+            ReceivedTime = DateTime.UtcNow;
+        }
+
+        public string MessageClass { get; } = "IPM.Note";
+
+        public string EntryID { get; }
+
+        public string Subject { get; }
+
+        public string SenderName { get; } = "Sender";
+
+        public string SenderEmailAddress { get; } =
+            "sender@example.test";
+
+        public string To { get; } = "recipient@example.test";
+
+        public string Body { get; } = "Message body";
+
+        public DateTime ReceivedTime { get; }
+
+        public DateTime SentOn { get; } = DateTime.MinValue;
+
+        public DateTime CreationTime { get; } = DateTime.MinValue;
+
+        public FakeMailFolder Parent { get; }
+    }
+
+    public sealed class FakeMailFolder
+    {
+        public string StoreID { get; } = "store";
     }
 
     public sealed class FakeOutlookApplication

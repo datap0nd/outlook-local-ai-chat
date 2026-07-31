@@ -17,9 +17,10 @@ namespace OutlookLocalAIChat.Chat
                 ReadThread
             };
 
-        public static List<ChatToolDefinition> CreateDefinitions()
+        public static List<ChatToolDefinition> CreateDefinitions(
+            bool workingSetOnly = false)
         {
-            return new List<ChatToolDefinition>
+            var definitions = new List<ChatToolDefinition>
             {
                 new ChatToolDefinition
                 {
@@ -59,7 +60,7 @@ namespace OutlookLocalAIChat.Chat
                                     IntegerSchema(
                                         "Maximum number of result summaries to return.",
                                         1,
-                                        20)
+                                        5)
                                 }
                             },
                             "query")
@@ -73,7 +74,9 @@ namespace OutlookLocalAIChat.Chat
                         name = ReadMessages,
                         description =
                             "Load the bounded plain-text bodies of messages returned by " +
-                            "search_mailbox, or the currently selected email using handle selected.",
+                            "search_mailbox, the selected email, or the user-approved " +
+                            "five-message working set. At most five unique message bodies " +
+                            "can be loaded in one request.",
                         parameters = ObjectSchema(
                             new Dictionary<string, object>
                             {
@@ -85,10 +88,12 @@ namespace OutlookLocalAIChat.Chat
                                         {
                                             "items",
                                             StringSchema(
-                                                "A temporary handle returned by search_mailbox.")
+                                                "A temporary handle returned by search_mailbox, " +
+                                                "selected, or context1 through context5 from the " +
+                                                "user-approved working set.")
                                         },
                                         { "minItems", 1 },
-                                        { "maxItems", 4 }
+                                        { "maxItems", 5 }
                                     }
                                 }
                             },
@@ -102,8 +107,9 @@ namespace OutlookLocalAIChat.Chat
                     {
                         name = ReadThread,
                         description =
-                            "Load up to 12 bounded messages in the Outlook conversation containing " +
-                            "a searched or selected message.",
+                            "Load bounded messages in the Outlook conversation containing " +
+                            "a searched or selected message, subject to the five-message " +
+                            "request-wide context cap.",
                         parameters = ObjectSchema(
                             new Dictionary<string, object>
                             {
@@ -118,6 +124,13 @@ namespace OutlookLocalAIChat.Chat
                     }
                 }
             };
+
+            return workingSetOnly
+                ? new List<ChatToolDefinition>
+                {
+                    definitions[1]
+                }
+                : definitions;
         }
 
         public static bool IsApproved(string name)
