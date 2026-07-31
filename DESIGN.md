@@ -84,7 +84,7 @@ components:
 
 Outlook Local AI Chat is a compact native Outlook sidebar. It should feel native to classic Outlook, not like an AI showcase: familiar system typography, quiet white and cool-gray surfaces, square fields, restrained density, and blue reserved for direct actions.
 
-The screen tells one ordered story: confirm mailbox scope and the optional selected message, ask a question, observe which bounded read-only context was loaded, then deliberately open an unsent draft in Outlook. The visual hierarchy must keep this read/chat/draft-only boundary obvious. Model output may choose read context but can never invoke a mailbox mutation, and no control may imply that the utility can send mail.
+The screen tells one ordered story: confirm mailbox scope and the optional selected message, ask a question, observe which bounded read-only context was loaded, then deliberately authorize or manually open one unsent draft in Outlook. The visual hierarchy must keep the read-plus-one-shot-draft boundary obvious. No control may imply that the utility can send mail.
 
 **Key Characteristics:**
 
@@ -147,11 +147,11 @@ The palette is mostly Windows system color roles, with a fixed Outlook-adjacent 
 
 ## Layout
 
-The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 92 pixels high and includes the active model and read-only boundary, followed by a compact 38-pixel toolbar. The transcript consumes all remaining flexible height. The 118-pixel composer band, 64-pixel draft-action area, and 64-pixel status band remain anchored at the bottom.
+The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 92 pixels high and includes the active model and draft-authorization boundary, followed by a compact 38-pixel toolbar. The transcript consumes all remaining flexible height. The 146-pixel composer band, 64-pixel draft-action area, and 64-pixel status band remain anchored at the bottom.
 
 Horizontal content padding is 14 pixels in the sidebar work areas. The toolbar uses 8 pixels, while the modal settings form uses 24 pixels. Vertical rhythm is compact, generally 3 to 10 pixels between related controls. The transcript stays visually open and scrolls vertically instead of becoming a stack of cards.
 
-The composer is a two-column grid: a fluid multiline text field and a fixed 104-pixel action column. The send button fills the available composer height. Draft actions align to the right beneath a full-width disclosure. Long message subjects, sender metadata, and status text ellipsize rather than breaking the overall frame.
+The composer is a two-column grid: a fluid multiline text field and a fixed action column. The send button fills the message row. A native checkbox directly below the message field authorizes one unsent draft for that request, and a persistent hint states that permission resets after Send. Manual draft actions align to the right beneath a full-width disclosure. Long message subjects, sender metadata, and status text ellipsize rather than breaking the overall frame.
 
 The settings window is a centered modal, 620 by 590 client pixels with a 560 by 570 minimum. Endpoint, editable model selector, and API-key fields stack vertically. The model selector includes a direct recommended-model action and concise tradeoff guidance. An explicit insecure-HTTP checkbox and transport warning follow the credential fields. A visible endpoint check validates authentication, optional model discovery, and a synthetic mailbox tool call before the bottom Save and Cancel actions.
 
@@ -201,7 +201,8 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 ### Composer
 
 - **Style:** Multiline square field with a fixed single border, vertical scrolling, and bounded input length.
-- **Instruction:** A persistent hint says the field is for questions or draft-text requests and that Ctrl+Enter sends.
+- **Authorization:** A native checkbox labeled "Allow one unsent draft for this request" is unchecked by default, keyboard accessible, disabled while busy, and reset immediately after Send. Model output cannot alter it.
+- **Instruction:** A persistent hint says permission resets after Send and that Ctrl+Enter sends.
 - **Focus:** Keep the native Windows focus indication. Do not replace it with color-only styling.
 - **Busy State:** Disable the field while waiting, change "Send to AI" to "Cancel," and restore the user's prompt if the request fails, times out, or is discarded.
 
@@ -216,13 +217,13 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 
 - **Shape:** Square, flat, 34-pixel-high secondary controls with one-pixel system borders.
 - **Labels:** "New draft" and "Reply draft" explicitly describe the result.
-- **State:** Both remain disabled until a complete assistant response exists. Reply draft also requires a reply-capable message selected when the request began. Both disable during an active request.
+- **State:** Both remain disabled until a complete assistant response exists. Reply draft also requires a reply-capable message selected when the request began. Both disable during an active request and stay disabled after either manual or authorized automatic draft creation for that response.
 - **Boundary:** A click may create, save, and display an unsent Outlook draft. No send, schedule, move, delete, mark, categorize, or source-message modification action belongs in this component family.
 
 ### Draft Disclosure
 
 - **Character:** Persistent, quiet, and unambiguous.
-- **Copy:** "Drafts use the entire latest assistant response."
+- **Copy:** "One draft maximum per response." The accessible description adds that manual buttons use the entire latest assistant response.
 - **Placement:** Immediately above the draft buttons so users see the content boundary before acting.
 
 ### Status Band

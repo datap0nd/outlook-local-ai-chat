@@ -27,8 +27,9 @@ The add-in provides a native chat sidebar inside Outlook. It sends the prompt,
 recent in-memory conversation, and optional selected-message metadata to a
 user-configured OpenAI-compatible endpoint. The model may request bounded
 read-only searches, message bodies, and conversation threads from the primary
-Inbox and Sent Items. The user can then create an Outlook reply draft or
-blank-addressed new-message draft from text they explicitly choose.
+Inbox and Sent Items. After the user explicitly arms one request, the model may
+create one unsent Outlook reply or new-message draft. Manual draft buttons remain
+available as a fallback.
 
 Success means installation is understandable, configuration takes one endpoint,
 model name, and API key, and no model response can invoke an Outlook send action.
@@ -36,9 +37,9 @@ model name, and API key, and no model response can invoke an Outlook send action
 ## Positioning
 
 Model output can invoke only a compile-time allowlist of bounded mailbox read
-tools. It cannot invoke Outlook mutation or arbitrary COM capabilities. Only
-user interface events can call a separate Outlook draft service, and that service
-exposes create, save, and display operations but no send operation.
+tools. A fourth `create_draft` tool appears only after explicit local one-shot
+authorization. Its dedicated host consumes permission before calling a draft
+service that exposes create, save, and display operations but no send operation.
 
 ## Operating Context
 
@@ -58,9 +59,11 @@ exposes create, save, and display operations but no send operation.
 - Hold a text conversation about the mailbox, a selected message, or a retrieved
   conversation.
 - Generate text suitable for a reply or a new message.
-- Create and display an unsent Outlook draft only after an explicit user click.
+- Create and display at most one unsent Outlook draft per explicitly authorized
+  request or latest-response manual draft action.
 - Never send, schedule, move, delete, mark, categorize, or modify the source email.
-- Expose only `search_mailbox`, `read_messages`, and `read_thread` tools.
+- Always expose only `search_mailbox`, `read_messages`, and `read_thread`.
+  Conditionally expose `create_draft` for one locally authorized request.
 - Reject all other model tool calls and cap calls, rounds, results, and returned
   text.
 - Never render model output as HTML or execute it as code.

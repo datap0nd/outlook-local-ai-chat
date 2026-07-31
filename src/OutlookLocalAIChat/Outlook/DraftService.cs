@@ -57,9 +57,22 @@ namespace OutlookLocalAIChat.Outlook
             }
         }
 
-        public void CreateNewDraft(string draftText)
+        public void CreateNewDraft(
+            string draftText,
+            string subject = null,
+            string to = null,
+            string cc = null)
         {
             var boundedText = RequireDraftText(draftText);
+            var boundedSubject = TextBoundary.SingleLine(
+                subject,
+                255);
+            var boundedTo = TextBoundary.SingleLine(
+                to,
+                2000);
+            var boundedCc = TextBoundary.SingleLine(
+                cc,
+                2000);
             object draft = null;
 
             try
@@ -67,6 +80,9 @@ namespace OutlookLocalAIChat.Outlook
                 dynamic application = _outlookApplication;
                 draft = application.CreateItem(0);
                 dynamic mail = draft;
+                mail.Subject = boundedSubject;
+                mail.To = boundedTo;
+                mail.CC = boundedCc;
                 mail.Body = boundedText;
                 mail.Save();
                 mail.Display(false);

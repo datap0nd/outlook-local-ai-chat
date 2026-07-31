@@ -45,5 +45,16 @@ namespace OutlookLocalAIChat.Security
 
             return builder.ToString().Trim();
         }
+
+        public static string SingleLine(
+            string value,
+            int maximumLength)
+        {
+            return PlainText(value, maximumLength)
+                .Replace('\r', ' ')
+                .Replace('\n', ' ')
+                .Replace('\t', ' ')
+                .Trim();
+        }
     }
 }

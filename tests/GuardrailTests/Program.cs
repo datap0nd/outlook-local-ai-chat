@@ -54,6 +54,15 @@ namespace GuardrailTests
                     "Endpoint diagnostics expose transport details",
                     EndpointDiagnosticsExposeTransportDetails);
                 Run("Mailbox tools are read only", MailboxToolsAreReadOnly);
+                Run(
+                    "Draft tool requires explicit authorization",
+                    DraftToolRequiresAuthorization);
+                Run(
+                    "Draft authorization creates at most one unsent draft",
+                    DraftAuthorizationCreatesOnlyOneDraft);
+                Run(
+                    "Mixed draft tool calls do not consume permission",
+                    MixedDraftToolCallIsRejected);
                 Run("Request schema exposes bounded tools", RequestSchemaIsBounded);
                 Run("Email is labeled as untrusted data", EmailIsUntrustedData);
                 Run("Conversation history is bounded", HistoryIsBounded);
@@ -61,6 +70,9 @@ namespace GuardrailTests
                 Run(
                     "Mailbox host exposes one guarded dispatcher",
                     MailboxHostHasGuardedDispatcher);
+                Run(
+                    "Draft host exposes one guarded dispatcher",
+                    DraftHostHasGuardedDispatcher);
                 Run(
                     "Office startup and task pane COM interfaces are dual",
                     OfficeStartupInterfacesAreDual);
@@ -336,6 +348,149 @@ namespace GuardrailTests
                 string.Join(", ", names));
         }
 
+        private static void DraftToolRequiresAuthorization()
+        {
+            var withoutPermission = MakeRequest(
+                new List<ChatTurn>());
+            Assert(
+                !withoutPermission.tools.Any(tool =>
+                    tool.function.name ==
+                    DraftToolCatalog.CreateDraft),
+                "Draft creation was exposed without authorization.");
+
+            var withPermission = MakeRequest(
+                new List<ChatTurn>(),
+                true);
+            var names = withPermission.tools
+                .Select(tool => tool.function.name)
+                .OrderBy(name => name)
+                .ToArray();
+            var expected = new[]
+            {
+                "create_draft",
+                "read_messages",
+                "read_thread",
+                "search_mailbox"
+            };
+            Assert(
+                names.SequenceEqual(expected),
+                "Authorized request tools are wrong: " +
+                string.Join(", ", names));
+
+            var json = new JavaScriptSerializer()
+                .Serialize(withPermission);
+            var system =
+                ((ChatCompletionInputMessage)
+                    withPermission.messages[0]).content;
+            Assert(
+                json.Contains("\"create_draft\"") &&
+                json.Contains("\"additionalProperties\":false") &&
+                system.Contains("explicitly authorized") &&
+                system.Contains("only tool call"),
+                "The authorized draft boundary is incomplete.");
+
+            var application = new FakeOutlookApplication();
+            var unauthorizedHost = new DraftToolHost(
+                application,
+                null,
+                new OneShotDraftAuthorization(false));
+            var rejected = unauthorizedHost.Execute(
+                DraftCall(
+                    "unauthorized",
+                    "{\"kind\":\"new\",\"body\":\"Blocked\"}"),
+                true);
+            Assert(
+                rejected.Content.Contains(
+                    "DRAFT_PERMISSION_NOT_AVAILABLE") &&
+                application.CreatedCount == 0,
+                "A fabricated draft tool call bypassed local authorization.");
+        }
+
+        private static void DraftAuthorizationCreatesOnlyOneDraft()
+        {
+            var application = new FakeOutlookApplication();
+            var authorization =
+                new OneShotDraftAuthorization(true);
+            var host = new DraftToolHost(
+                application,
+                null,
+                authorization);
+
+            var first = host.Execute(
+                DraftCall(
+                    "draft-1",
+                    "{\"kind\":\"new\"," +
+                    "\"body\":\"Hello\"," +
+                    "\"subject\":\"Subject\\nInjected\"," +
+                    "\"to\":\"one@example.test\\ntwo@example.test\"}"),
+                true);
+            var second = host.Execute(
+                DraftCall(
+                    "draft-2",
+                    "{\"kind\":\"new\",\"body\":\"Second\"}"),
+                true);
+
+            Assert(
+                authorization.IsConsumed &&
+                authorization.IsCreated &&
+                application.CreatedCount == 1,
+                "The one-shot permission created more than one draft.");
+            Assert(
+                first.Content.Contains("\"sent\":false") &&
+                second.Content.Contains(
+                    "DRAFT_PERMISSION_NOT_AVAILABLE"),
+                "The one-shot result contract is incomplete.");
+            Assert(
+                application.LastDraft.Subject ==
+                    "Subject Injected" &&
+                application.LastDraft.To ==
+                    "one@example.test two@example.test" &&
+                application.LastDraft.Body == "Hello" &&
+                application.LastDraft.Saved &&
+                application.LastDraft.Displayed &&
+                !application.LastDraft.DisplayModal,
+                "The unsent draft fields or lifecycle are wrong.");
+        }
+
+        private static void MixedDraftToolCallIsRejected()
+        {
+            var application = new FakeOutlookApplication();
+            var authorization =
+                new OneShotDraftAuthorization(true);
+            var host = new DraftToolHost(
+                application,
+                null,
+                authorization);
+            var result = host.Execute(
+                DraftCall(
+                    "mixed",
+                    "{\"kind\":\"new\",\"body\":\"Hello\"}"),
+                false);
+
+            Assert(
+                result.Content.Contains(
+                    "DRAFT_TOOL_MUST_BE_EXCLUSIVE") &&
+                !authorization.IsConsumed &&
+                application.CreatedCount == 0,
+                "A mixed draft call bypassed exclusivity.");
+        }
+
+        private static ChatToolCall DraftCall(
+            string id,
+            string arguments)
+        {
+            return new ChatToolCall
+            {
+                id = id,
+                type = "function",
+                function = new ChatToolCallFunction
+                {
+                    name = DraftToolCatalog.CreateDraft,
+                    arguments = arguments
+                }
+            };
+        }
+
         private static void RequestSchemaIsBounded()
         {
             var fields = typeof(ChatCompletionRequest)
@@ -410,6 +565,22 @@ namespace GuardrailTests
                 methods.Length == 1 &&
                 methods[0] == "Execute",
                 "Mailbox tool host public capabilities changed: " +
+                string.Join(", ", methods));
+        }
+
+        private static void DraftHostHasGuardedDispatcher()
+        {
+            var methods = typeof(DraftToolHost)
+                .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                .Where(method =>
+                    method.DeclaringType ==
+                    typeof(DraftToolHost))
+                .Select(method => method.Name)
+                .ToArray();
+            Assert(
+                methods.Length == 1 &&
+                methods[0] == "Execute",
+                "Draft tool host public capabilities changed: " +
                 string.Join(", ", methods));
         }
 
@@ -499,7 +670,8 @@ namespace GuardrailTests
         }
 
         private static ChatCompletionRequest MakeRequest(
-            IReadOnlyList<ChatTurn> history)
+            IReadOnlyList<ChatTurn> history,
+            bool allowOneDraft = false)
         {
             return ChatRequestFactory.Create(
                 "local-model",
@@ -512,7 +684,8 @@ namespace GuardrailTests
                     DateTime.UtcNow,
                     "Message body"),
                 history,
-                "Help me reply.");
+                "Help me reply.",
+                allowOneDraft);
         }
 
         private static void Assert(bool condition, string message)
@@ -680,6 +853,54 @@ namespace GuardrailTests
                     stream.Flush();
                 }
             }
+        }
+    }
+
+    public sealed class FakeOutlookApplication
+    {
+        public int CreatedCount { get; private set; }
+
+        public FakeMailItem LastDraft { get; private set; }
+
+        public object CreateItem(int itemType)
+        {
+            if (itemType != 0)
+            {
+                throw new InvalidOperationException(
+                    "Only mail items are allowed in the test host.");
+            }
+
+            CreatedCount++;
+            LastDraft = new FakeMailItem();
+            return LastDraft;
+        }
+    }
+
+    public sealed class FakeMailItem
+    {
+        public string Subject { get; set; }
+
+        public string To { get; set; }
+
+        public string CC { get; set; }
+
+        public string Body { get; set; }
+
+        public bool Saved { get; private set; }
+
+        public bool Displayed { get; private set; }
+
+        public bool DisplayModal { get; private set; }
+
+        public void Save()
+        {
+            Saved = true;
+        }
+
+        public void Display(bool modal)
+        {
+            Displayed = true;
+            DisplayModal = modal;
         }
     }
 }

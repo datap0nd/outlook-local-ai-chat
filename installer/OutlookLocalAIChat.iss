@@ -1,6 +1,6 @@
 #define AppName "Outlook Local AI Chat"
 #ifndef AppVersion
-  #define AppVersion "1.2.0"
+  #define AppVersion "1.3.0"
 #endif
 #define AppPublisher "Outlook Local AI Chat"
 #define AppProgId "OutlookLocalAIChat.AddIn"

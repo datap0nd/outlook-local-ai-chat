@@ -67,9 +67,13 @@ email during the check.
 3. The model can search Inbox and Sent Items, inspect selected results, and load
    a conversation thread when needed.
 4. The sidebar records which bounded context operations ran.
-5. Continue refining the answer or ask for draft text.
-6. Choose **Reply draft** or **New draft**.
-7. Review, edit, address, and send the message using Outlook's normal editor.
+5. To let the model open a draft, select **Allow one unsent draft for this
+   request**, then ask it to create a new or reply draft.
+6. The permission exists only for that request and is consumed by the first
+   creation attempt. The draft opens unsent in Outlook.
+7. Alternatively, use **Reply draft** or **New draft** after a response. Those
+   buttons are also limited to one draft for that response.
+8. Review, edit, address, and send the message using Outlook's normal editor.
 
 Selecting an email is optional for mailbox questions. When one is selected, the
 model receives its metadata and may request its body using the temporary
@@ -78,32 +82,40 @@ chosen or Outlook closes.
 
 ## Hard security boundary
 
-The model is not given general Outlook access.
+The model is not given general Outlook access. Draft creation is a narrowly
+scoped exception, not a general mutation permission.
 
-- The AI request exposes exactly three tools: `search_mailbox`,
+- Every request exposes exactly three read-only tools: `search_mailbox`,
   `read_messages`, and `read_thread`.
-- The local host rejects every other tool name and caps tool calls, tool rounds,
-  result counts, message bodies, and total returned context.
+- `create_draft` is added only when the local one-shot checkbox was selected.
+  Model output, prompts, and email content cannot select that checkbox.
+- The draft host requires `create_draft` to be the only tool call in its model
+  response, validates strict arguments, and atomically consumes permission
+  before creating anything.
+- One request can make at most one creation attempt. After any automatic or
+  manual attempt, the other draft controls for that response are disabled.
+- The local hosts reject every other tool name and cap tool calls, tool rounds,
+  result counts, message bodies, draft fields, and total returned context.
 - Search results use temporary handles. The model cannot submit arbitrary COM
   objects, Outlook commands, or executable code.
 - The model client never receives the Outlook application object or draft
   service.
 - Model output is length-limited plain text displayed in a Windows control. It is
   never evaluated, executed, or rendered as HTML.
-- Only explicit local button events can call `CreateReplyDraft` or
-  `CreateNewDraft`.
-- The model-invoked mailbox host contains no send, move, delete, schedule,
-  categorize, mark, or drafting operation.
+- Only the local one-shot authorization or explicit manual draft buttons can
+  reach `CreateReplyDraft` or `CreateNewDraft`.
+- The model-invoked mailbox host remains read-only. A separate draft host has
+  only the one-shot `create_draft` dispatcher.
 - The separate draft service exposes no send, move, delete, schedule, or mailbox
   traversal operation.
 - Drafts are saved and displayed as unsent Outlook items.
 - CI fails if forbidden Outlook action calls are introduced.
 
-These controls let model output select read-only context while preventing it
-from reaching an email-send or mailbox-mutation capability. They do not claim
-protection against a compromised Windows account, modified add-in binary,
-vulnerabilities in Outlook or .NET, or an administrator replacing installed
-files.
+These controls let model output select read-only context and, after explicit
+local authorization, create one unsent draft. They prevent it from reaching an
+email-send or source-mailbox mutation capability. They do not claim protection
+against a compromised Windows account, modified add-in binary, vulnerabilities
+in Outlook or .NET, or an administrator replacing installed files.
 
 See [SECURITY.md](SECURITY.md) for the full threat model.
 
@@ -121,6 +133,12 @@ The model may then request:
 - up to four bounded message bodies per tool call;
 - up to 12 messages from one Outlook conversation;
 - at most four tool calls per round and four context-retrieval rounds.
+
+When the one-shot checkbox is selected, that request also exposes
+`create_draft`. Its bounded arguments may contain a new-message subject,
+recipients, CC recipients, and body, or a reply body for the selected message.
+The tool can only save and display one unsent Outlook draft. It has no send
+operation, and its permission does not carry into the next request.
 
 Email bodies are sent only when the model requests them through an approved
 read-only tool. The add-in does not index, upload, or transmit the entire
@@ -161,7 +179,10 @@ TLS_SECURE_CHANNEL_FAILURE
 AI_TIMEOUT
 RESPONSE_INVALID_JSON
 RESPONSE_MISSING_CONTENT
-MAILBOX_TOOL_ROUND_LIMIT
+TOOL_ROUND_LIMIT
+DRAFT_PERMISSION_NOT_AVAILABLE
+DRAFT_TOOL_MUST_BE_EXCLUSIVE
+DRAFT_CREATION_FAILED
 OUTLOOK_COM_0x800...
 ```
 

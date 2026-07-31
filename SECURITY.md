@@ -5,7 +5,8 @@
 Untrusted email content, user prompts, conversation history, and model responses
 must never reach an Outlook send or source-message mutation capability. Model
 tool calls may select bounded read-only mailbox context. The only mutation this
-add-in permits is creating an unsent draft after a direct user click.
+add-in permits is creating one unsent draft after explicit, request-scoped local
+authorization or a direct manual draft-button click.
 
 ## Capability separation
 
@@ -24,20 +25,30 @@ temporary handles + bounded untrusted text -> endpoint
     v
 bounded plain-text response -> Outlook custom task pane
 
-User clicks draft button
+User selects one-shot draft authorization before Send
+    |
+    v
+request includes create_draft -> DraftToolHost -> consume once
+    |
+    v
+DraftService -> Save + Display one unsent Outlook draft
+
+Or user clicks a manual draft button
     |
     v
 DraftService -> Save + Display unsent Outlook draft
 ```
 
 `OpenAiCompatibleClient` has no reference to the Outlook application object or
-`DraftService`. `DraftService` is instantiated only in the two draft-button event
-handlers.
+`DraftService`. The mailbox host remains separate from `DraftService`. The
+dedicated draft host can reach only `DraftService` and only through an atomic
+one-shot authorization created from the local checkbox state.
 
 ## Enforced invariants
 
-1. The model request schema exposes exactly `search_mailbox`, `read_messages`,
-   and `read_thread`.
+1. The model request schema always exposes exactly `search_mailbox`,
+   `read_messages`, and `read_thread`. It exposes `create_draft` only when the
+   local one-shot checkbox was selected for that request.
 2. `MailboxToolHost` has one public dispatcher and rejects any tool name outside
    that compile-time allowlist.
 3. Model-selected searches are limited to the primary Inbox and Sent Items.
@@ -53,10 +64,16 @@ handlers.
    renderer is used.
 8. `DraftService` has exactly two public operations:
    `CreateReplyDraft` and `CreateNewDraft`.
-9. Draft operations call Outlook save and display behavior only.
-10. Source scans fail on Outlook send, delete, move, Outbox, or send/receive
+9. `DraftToolHost` has one public dispatcher. It accepts only `create_draft`,
+   requires it to be the only tool call in the response, bounds every field,
+   and consumes the local permission atomically before calling `DraftService`.
+10. A request can make at most one draft-creation attempt. Manual draft buttons
+    are also disabled after one attempt for the latest response.
+11. Draft operations call Outlook save and display behavior only. New-draft
+    subject and recipient fields are reduced to bounded single-line text.
+12. Source scans fail on Outlook send, delete, move, Outbox, or send/receive
    capabilities.
-11. Conversation history is held in memory and cleared by **New chat** or Outlook
+13. Conversation history is held in memory and cleared by **New chat** or Outlook
     shutdown.
 
 The system prompt reinforces these limits, but no security property depends on

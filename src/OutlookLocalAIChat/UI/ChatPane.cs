@@ -82,6 +82,8 @@ namespace OutlookLocalAIChat.UI
         private readonly RichTextBox _transcript =
             new RichTextBox();
         private readonly TextBox _composer = new TextBox();
+        private readonly CheckBox _allowOneDraft =
+            new CheckBox();
         private readonly Label _scopeTitle = new Label();
         private readonly Label _scopeMeta = new Label();
         private readonly Label _modelMeta = new Label();
@@ -98,6 +100,7 @@ namespace OutlookLocalAIChat.UI
         private MessageSnapshot _selectedMessage;
         private MessageSnapshot _draftSource;
         private string _lastAssistantText = string.Empty;
+        private bool _draftConsumedForLatestResponse;
         private CancellationTokenSource _requestCancellation;
         private bool _busy;
         private bool _shutdown;
@@ -219,7 +222,7 @@ namespace OutlookLocalAIChat.UI
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 118));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 146));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
 
@@ -341,7 +344,7 @@ namespace OutlookLocalAIChat.UI
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 2,
-                RowCount = 2,
+                RowCount = 3,
                 Padding = new Padding(14, 8, 14, 8),
                 BackColor = SurfaceMuted
             };
@@ -351,6 +354,8 @@ namespace OutlookLocalAIChat.UI
                 new ColumnStyle(SizeType.Absolute, 96));
             panel.RowStyles.Add(
                 new RowStyle(SizeType.Percent, 100));
+            panel.RowStyles.Add(
+                new RowStyle(SizeType.Absolute, 28));
             panel.RowStyles.Add(
                 new RowStyle(SizeType.Absolute, 22));
 
@@ -375,6 +380,19 @@ namespace OutlookLocalAIChat.UI
             _send.Margin = new Padding(8, 0, 0, 0);
             _send.Click += SendClick;
 
+            _allowOneDraft.AutoSize = true;
+            _allowOneDraft.Text =
+                "Allow one unsent draft for this request";
+            _allowOneDraft.ForeColor = TextPrimary;
+            _allowOneDraft.Padding = new Padding(0, 3, 0, 0);
+            _allowOneDraft.AccessibleName =
+                "Allow one unsent draft";
+            _allowOneDraft.AccessibleDescription =
+                "Adds one create-draft capability to the next AI request. " +
+                "The permission resets after Send and cannot send email.";
+            _allowOneDraft.CheckedChanged +=
+                DraftAuthorizationChanged;
+
             var hint = new Label
             {
                 AutoSize = true,
@@ -384,13 +402,15 @@ namespace OutlookLocalAIChat.UI
                     Math.Max(8F, Font.Size - 1F),
                     FontStyle.Regular),
                 Text =
-                    "The model chooses read-only mailbox context. Ctrl+Enter sends.",
+                    "Permission resets after Send. Ctrl+Enter sends.",
                 Padding = new Padding(0, 3, 0, 0)
             };
 
             panel.Controls.Add(_composer, 0, 0);
             panel.Controls.Add(_send, 1, 0);
-            panel.Controls.Add(hint, 0, 1);
+            panel.Controls.Add(_allowOneDraft, 0, 1);
+            panel.SetColumnSpan(_allowOneDraft, 2);
+            panel.Controls.Add(hint, 0, 2);
             panel.SetColumnSpan(hint, 2);
             return panel;
         }
@@ -419,8 +439,10 @@ namespace OutlookLocalAIChat.UI
                     Math.Max(8F, Font.Size - 1F),
                     FontStyle.Regular),
                 Text =
-                    "Drafts use the entire latest assistant response.",
-                AccessibleName = "Draft content disclosure"
+                    "One draft maximum per response.",
+                AccessibleName = "Draft content disclosure",
+                AccessibleDescription =
+                    "Manual draft buttons use the entire latest assistant response."
             };
 
             var actions = new FlowLayoutPanel
@@ -465,7 +487,7 @@ namespace OutlookLocalAIChat.UI
             _status.AccessibleName = "Chat status";
             _status.AccessibleRole = AccessibleRole.StatusBar;
             _status.Text =
-                "Mailbox tools are read-only. Drafts require your click.";
+                "Mailbox reads are bounded. Draft creation requires one-shot authorization.";
             panel.Controls.Add(_status);
             return panel;
         }
@@ -509,6 +531,10 @@ namespace OutlookLocalAIChat.UI
             }
 
             var requestSelectedMessage = _selectedMessage;
+            var draftAuthorization =
+                new OneShotDraftAuthorization(
+                    _allowOneDraft.Checked);
+            _allowOneDraft.Checked = false;
             var transcriptStart = _transcript.TextLength;
             AppendTurn("You", prompt, OutlookBlue);
             _composer.Clear();
@@ -521,6 +547,7 @@ namespace OutlookLocalAIChat.UI
                 var response = await CompleteMailboxChatAsync(
                     requestSelectedMessage,
                     prompt,
+                    draftAuthorization,
                     _requestCancellation.Token);
 
                 _history.Add(new ChatTurn("user", prompt));
@@ -528,13 +555,37 @@ namespace OutlookLocalAIChat.UI
                     new ChatTurn("assistant", response));
                 _lastAssistantText = response;
                 _draftSource = requestSelectedMessage;
+                _draftConsumedForLatestResponse =
+                    draftAuthorization.IsConsumed;
                 AppendTurn(
                     "Assistant",
                     response,
                     TextPrimary);
-                SetStatus(
-                    "Response received. Draft actions still require your click.",
-                    false);
+                if (draftAuthorization.IsCreated)
+                {
+                    SetStatus(
+                        "One unsent draft was opened. The one-shot permission is consumed.",
+                        false);
+                }
+                else if (draftAuthorization.IsConsumed)
+                {
+                    SetStatus(
+                        "Draft creation did not complete. The one-shot permission is consumed.",
+                        true);
+                }
+                else if (draftAuthorization.WasAuthorized)
+                {
+                    SetStatus(
+                        "Response received without creating a draft. " +
+                        "The one-shot permission expired.",
+                        false);
+                }
+                else
+                {
+                    SetStatus(
+                        "Response received. Draft creation was not authorized.",
+                        false);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -555,6 +606,11 @@ namespace OutlookLocalAIChat.UI
             }
             finally
             {
+                if (draftAuthorization.IsConsumed)
+                {
+                    _draftConsumedForLatestResponse = true;
+                }
+
                 _requestCancellation?.Dispose();
                 _requestCancellation = null;
                 SetBusy(false);
@@ -564,16 +620,22 @@ namespace OutlookLocalAIChat.UI
         private async Task<string> CompleteMailboxChatAsync(
             MessageSnapshot selectedMessage,
             string prompt,
+            OneShotDraftAuthorization draftAuthorization,
             CancellationToken cancellationToken)
         {
             var request = ChatRequestFactory.Create(
                 _settings.Model,
                 selectedMessage,
                 _history,
-                prompt);
-            var tools = new MailboxToolHost(
+                prompt,
+                draftAuthorization.WasAuthorized);
+            var mailboxTools = new MailboxToolHost(
                 _outlookApplication,
                 selectedMessage);
+            var draftTools = new DraftToolHost(
+                _outlookApplication,
+                selectedMessage,
+                draftAuthorization);
 
             for (var round = 0;
                  round <= TextBoundary.MaxToolRounds;
@@ -599,25 +661,41 @@ namespace OutlookLocalAIChat.UI
                 if (round == TextBoundary.MaxToolRounds)
                 {
                     throw new AiEndpointException(
-                        "MAILBOX_TOOL_ROUND_LIMIT",
-                        "The model exceeded the maximum number of mailbox context rounds.");
+                        "TOOL_ROUND_LIMIT",
+                        "The model exceeded the maximum number of bounded tool rounds.");
                 }
 
                 if (toolCalls.Count >
                     TextBoundary.MaxToolCallsPerRound)
                 {
                     throw new AiEndpointException(
-                        "MAILBOX_TOOL_CALL_LIMIT",
-                        "The model requested too many mailbox tools in one round.");
+                        "TOOL_CALL_LIMIT",
+                        "The model requested too many tools in one round.");
                 }
 
                 var results = new List<MailboxToolResult>();
                 foreach (var toolCall in toolCalls)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var result = tools.Execute(toolCall);
+                    var isDraftCall =
+                        DraftToolCatalog.IsCreateDraft(
+                            toolCall?.function?.name);
+                    var result = isDraftCall
+                        ? draftTools.Execute(
+                            toolCall,
+                            toolCalls.Count == 1)
+                        : mailboxTools.Execute(toolCall);
                     results.Add(result);
-                    AppendContext(result.StatusText);
+                    if (isDraftCall)
+                    {
+                        AppendDraftAction(
+                            result.StatusText);
+                    }
+                    else
+                    {
+                        AppendContext(
+                            result.StatusText);
+                    }
                     SetStatus(result.StatusText, false);
                 }
 
@@ -628,14 +706,16 @@ namespace OutlookLocalAIChat.UI
             }
 
             throw new AiEndpointException(
-                "MAILBOX_TOOL_ROUND_LIMIT",
-                "The model did not finish after bounded mailbox context retrieval.");
+                "TOOL_ROUND_LIMIT",
+                "The model did not finish after bounded tool use.");
         }
 
         private void ReplyDraftClick(
             object sender,
             EventArgs eventArgs)
         {
+            _draftConsumedForLatestResponse = true;
+            UpdateDraftButtons();
             try
             {
                 new DraftService(_outlookApplication)
@@ -661,6 +741,8 @@ namespace OutlookLocalAIChat.UI
             object sender,
             EventArgs eventArgs)
         {
+            _draftConsumedForLatestResponse = true;
+            UpdateDraftButtons();
             try
             {
                 new DraftService(_outlookApplication)
@@ -692,6 +774,8 @@ namespace OutlookLocalAIChat.UI
             _history.Clear();
             _lastAssistantText = string.Empty;
             _draftSource = null;
+            _draftConsumedForLatestResponse = false;
+            _allowOneDraft.Checked = false;
             _transcript.Clear();
             ShowWelcome();
             UpdateDraftButtons();
@@ -734,6 +818,15 @@ namespace OutlookLocalAIChat.UI
                 text,
                 TextSecondary,
                 FontStyle.Italic);
+        }
+
+        private void AppendDraftAction(string text)
+        {
+            AppendStyledBlock(
+                "Draft",
+                text,
+                OutlookBlue,
+                FontStyle.Regular);
         }
 
         private void AppendError(string text)
@@ -832,6 +925,7 @@ namespace OutlookLocalAIChat.UI
             _busy = busy;
             _send.Text = busy ? "Cancel" : "Send to AI";
             _composer.Enabled = !busy;
+            _allowOneDraft.Enabled = !busy;
             _refresh.Enabled = !busy;
             _newChat.Enabled = !busy;
             _settingsButton.Enabled = !busy;
@@ -848,7 +942,8 @@ namespace OutlookLocalAIChat.UI
         {
             var enabled =
                 !_busy &&
-                _lastAssistantText.Length > 0;
+                _lastAssistantText.Length > 0 &&
+                !_draftConsumedForLatestResponse;
             _newDraft.Enabled = enabled;
             _replyDraft.Enabled =
                 enabled &&
@@ -878,8 +973,8 @@ namespace OutlookLocalAIChat.UI
             var model = _settings?.Model ?? string.Empty;
             _modelMeta.Text = configured
                 ? "Model: " + model +
-                  "  |  Search and read only"
-                : "Setup required  |  Search and read only";
+                  "  |  Drafts only when armed"
+                : "Setup required  |  Drafts only when armed";
         }
 
         private void ShowWelcome()
@@ -891,11 +986,27 @@ namespace OutlookLocalAIChat.UI
                 "Try:\n" +
                 "- Summarize what needs a reply this week.\n" +
                 "- Find decisions about a project or topic.\n" +
-                "- Draft a concise reply based on the full conversation.",
+                "- Arm one draft, then ask to open a concise reply.",
                 TextSecondary,
                 FontStyle.Regular);
             _transcript.SelectionStart = 0;
             _transcript.ScrollToCaret();
+        }
+
+        private void DraftAuthorizationChanged(
+            object sender,
+            EventArgs eventArgs)
+        {
+            if (_busy)
+            {
+                return;
+            }
+
+            SetStatus(
+                _allowOneDraft.Checked
+                    ? "One unsent draft is authorized for the next request only."
+                    : "Draft creation is not authorized for the next request.",
+                false);
         }
 
         private void ComposerKeyDown(
