@@ -580,7 +580,7 @@ namespace GuardrailTests
                     "context-" + index + ".txt",
                     new string(
                         (char)('a' + index),
-                        ExternalContextDocument.MaxCharactersPerDocument)))
+                        9000)))
                 .ToList();
             var normalized = ExternalContextDocument.Normalize(documents);
             var total = normalized.Sum(document =>
