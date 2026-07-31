@@ -94,7 +94,10 @@ foreach ($requiredBoundary in @(
     "DRAFT_PERMISSION_NOT_AVAILABLE",
     "DRAFT_UPDATE_NOT_AVAILABLE",
     "DRAFT_ALREADY_LINKED",
-    "DRAFT_TOOL_MUST_BE_EXCLUSIVE"
+    "DRAFT_TOOL_MUST_BE_EXCLUSIVE",
+    "DRAFT_REPLY_HANDLE_REQUIRED",
+    "DRAFT_REPLY_HANDLE_UNKNOWN",
+    'GetString(arguments, "reply_handle")'
 )) {
     if (-not $draftToolHostSource.Contains($requiredBoundary)) {
         throw "Draft tool host is missing boundary $requiredBoundary."
@@ -109,6 +112,11 @@ if (-not $factorySource.Contains("if (allowOneDraft && activeDraft == null)") -o
 }
 
 $chatPaneSource = Get-Content $chatPanePath -Raw
+if (-not $toolHostSource.Contains("ResolveHandle") -or
+    -not $chatPaneSource.Contains("mailboxTools.ResolveHandle")) {
+    throw "Reply drafts are not bound to request-scoped mailbox handles."
+}
+
 if (-not $chatPaneSource.Contains("_allowOneDraft.Checked") -or
     -not $chatPaneSource.Contains("_allowOneDraft.Checked = false") -or
     -not $chatPaneSource.Contains("hasLinkedDraft") -or

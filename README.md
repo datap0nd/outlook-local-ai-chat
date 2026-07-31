@@ -1,4 +1,4 @@
-# Inbox Cove
+# MailAI
 
 A Windows-only AI chat add-in for classic Outlook in Microsoft Office
 Professional Plus 2021. It installs locally, opens as a native Outlook sidebar,
@@ -16,7 +16,7 @@ an external Outlook MCP server.
    [OutlookLocalAIChatSetup.exe](https://github.com/datap0nd/outlook-local-ai-chat/releases/latest/download/OutlookLocalAIChatSetup.exe).
 3. Run the installer for your Windows account.
 4. Start classic Outlook.
-5. Choose **Inbox Cove > Inbox Cove** on the ribbon.
+5. Choose **MailAI > MailAI** on the ribbon.
 6. Open **Settings** and enter:
    - the OpenAI-compatible endpoint or base URL;
    - the model name, with `qwen3.5-35b-a3b` recommended;
@@ -63,8 +63,8 @@ email during the check.
 
 ## Use
 
-1. Open **Inbox Cove**. The chat appears as a sidebar inside Outlook.
-   You can also right-click one email and choose **Send to Inbox Cove**. The
+1. Open **MailAI**. The chat appears as a sidebar inside Outlook.
+   You can also right-click one email and choose **Send to MailAI**. The
    sidebar opens with `Selected: subject` at the top. Common `RE:`, `FW:`, and
    `FWD:` prefixes are hidden in that display.
 2. Ask a mailbox question, such as "What did I agree to send this week?"
@@ -105,6 +105,9 @@ scoped exception, not a general mutation permission.
   result counts, message bodies, draft fields, and total returned context.
 - Search results use temporary handles. The model cannot submit arbitrary COM
   objects, Outlook commands, or executable code.
+- A reply draft must include the exact temporary handle for its source email.
+  The local host rejects missing, expired, or invented handles and never falls
+  back to the selected or latest mailbox item.
 - The model client never receives the Outlook application object or draft
   service.
 - Model output is length-limited plain text displayed in a Windows control. It is
@@ -143,13 +146,15 @@ The model may then request:
 
 When the one-shot checkbox is selected, that request also exposes
 `create_draft`. Its bounded arguments may contain a new-message subject,
-recipients, CC recipients, and body, or a reply body for the selected message.
-The tool can only save and display one unsent Outlook draft. While that draft is
+recipients, CC recipients, and body, or a reply body plus the exact temporary
+handle of a searched or selected source message. The tool can only save and
+display one unsent Outlook draft. While that draft is
 linked, later requests expose `update_draft` instead. Each update supplies the
 complete bounded plain-text body and optional exact phrases to bold. The local
 formatter HTML-encodes all text and inserts only fixed `<strong>` and line-break
-markup. Arbitrary model HTML is never accepted. Neither tool has a send
-operation.
+markup. If a model mistakenly returns paired Markdown bold markers, the local
+formatter removes the markers and applies real Outlook bold formatting before
+display. Arbitrary model HTML is never accepted. Neither tool has a send operation.
 
 Email bodies are sent only when the model requests them through an approved
 read-only tool. The add-in does not index, upload, or transmit the entire
@@ -214,7 +219,7 @@ timeout failures before the endpoint returns an HTTP response.
 
 1. Close Outlook.
 2. Open Windows **Installed apps** or **Apps & features**.
-3. Uninstall **Inbox Cove**.
+3. Uninstall **MailAI**.
 
 Endpoint settings remain under:
 

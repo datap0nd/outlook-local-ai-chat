@@ -71,7 +71,7 @@ namespace OutlookLocalAIChat
                 ? "<contextMenus>" +
                   "<contextMenu idMso=\"ContextMenuMailItem\">" +
                   "<button id=\"OutlookLocalAIChat.SendToAi\" " +
-                  "label=\"Send to Inbox Cove\" imageMso=\"ResearchPane\" " +
+                  "label=\"Send to MailAI\" imageMso=\"ResearchPane\" " +
                   "onAction=\"OnSendToAi\"/>" +
                   "</contextMenu></contextMenus>"
                 : string.Empty;
@@ -80,10 +80,10 @@ namespace OutlookLocalAIChat
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
                 "<customUI xmlns=\"http://schemas.microsoft.com/office/2009/07/customui\">" +
                 "<ribbon><tabs><tab idMso=\"" + tabId + "\">" +
-                "<group id=\"OutlookLocalAIChat.Group\" label=\"Inbox Cove\">" +
-                "<button id=\"OutlookLocalAIChat.Open\" label=\"Inbox Cove\" " +
+                "<group id=\"OutlookLocalAIChat.Group\" label=\"MailAI\">" +
+                "<button id=\"OutlookLocalAIChat.Open\" label=\"MailAI\" " +
                 "size=\"large\" imageMso=\"ResearchPane\" onAction=\"OnOpenChat\" " +
-                "screentip=\"Open Inbox Cove\" " +
+                "screentip=\"Open MailAI\" " +
                 "supertip=\"Chat with your mailbox and refine one unsent Outlook draft.\"/>" +
                 "</group></tab></tabs></ribbon>" +
                 contextMenu +
@@ -105,7 +105,7 @@ namespace OutlookLocalAIChat
                 {
                     MessageBox.Show(
                         "Outlook is not ready. Restart Outlook and try again.",
-                        "Inbox Cove",
+                        "MailAI",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
                     return;
@@ -116,7 +116,7 @@ namespace OutlookLocalAIChat
                     MessageBox.Show(
                         "Outlook has not made the sidebar service available yet. " +
                         "Wait a moment and try again.",
-                        "Inbox Cove",
+                        "MailAI",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
                     return;
@@ -128,7 +128,7 @@ namespace OutlookLocalAIChat
                     dynamic factory = _ctpFactory;
                     _taskPane = factory.CreateCTP(
                         "OutlookLocalAIChat.ChatPane",
-                        "Inbox Cove",
+                        "MailAI",
                         parentWindow ?? Type.Missing);
 
                     dynamic pane = _taskPane;
@@ -160,7 +160,7 @@ namespace OutlookLocalAIChat
                     DiagnosticDetails.ForException(
                         exception,
                         "SIDEBAR_OPEN_FAILED"),
-                    "Inbox Cove",
+                    "MailAI",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
             }

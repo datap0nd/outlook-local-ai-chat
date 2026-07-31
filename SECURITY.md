@@ -29,7 +29,7 @@ bounded plain-text response -> Outlook custom task pane
 User selects one-shot draft authorization before Send
     |
     v
-request includes create_draft -> DraftToolHost -> consume once
+request includes create_draft + exact reply handle -> DraftToolHost -> consume once
     |
     v
 DraftService -> Save + Display one unsent Outlook draft
@@ -40,7 +40,7 @@ Later user feedback while the draft is linked
 request includes update_draft -> DraftToolHost -> consume once
     |
     v
-SafeDraftHtml -> encode text + exact bold phrases -> Save + Display same item
+SafeDraftHtml -> remove Markdown markers + encode text + apply bold -> Save + Display same item
 ```
 
 `OpenAiCompatibleClient` has no reference to the Outlook application object or
@@ -63,6 +63,9 @@ to one mutation attempt per user request.
    capped.
 4. Search results receive temporary handles. Read operations accept only handles
    issued within the current request, plus the optional `selected` handle.
+   Reply creation also requires one of those exact handles. Missing, expired,
+   and fabricated handles are rejected without consuming draft permission, and
+   the host never substitutes the selected or latest item.
 5. The mailbox host has no reference to `DraftService`, and the endpoint client
    has no Outlook application object.
 6. Response text is stripped of control characters and truncated before display
@@ -80,8 +83,9 @@ to one mutation attempt per user request.
     the unsent Outlook item.
 11. Draft operations call Outlook save and display behavior only. Subject and
     recipient fields are bounded single-line text. Body input is plain text;
-    local code HTML-encodes it and may add only fixed `<strong>` and `<br>` tags
-    from at most 12 exact bold phrases. BCC and arbitrary HTML are not accepted.
+    local code removes paired Markdown bold markers, HTML-encodes the remaining
+    text, and may add only fixed `<strong>` and `<br>` tags from those markers or
+    at most 12 exact bold phrases. BCC and arbitrary HTML are not accepted.
 12. Source scans fail on Outlook send, delete, move, Outbox, or send/receive
    capabilities.
 13. Conversation history is held in memory and cleared by **New chat** or Outlook

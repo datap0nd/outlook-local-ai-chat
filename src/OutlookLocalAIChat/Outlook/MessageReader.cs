@@ -117,7 +117,7 @@ namespace OutlookLocalAIChat.Outlook
                 if (selectedItems.Count != 1)
                 {
                     throw new InvalidOperationException(
-                        "Select exactly one email before using Send to Inbox Cove.");
+                        "Select exactly one email before using Send to MailAI.");
                 }
 
                 item = selectedItems.Item(1);

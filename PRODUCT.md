@@ -45,8 +45,8 @@ locally linked item. The dedicated host exposes no send operation.
 
 - Microsoft Office Professional Plus 2021 with classic Outlook on Windows.
 - Per-user local installation is preferred.
-- The user opens Inbox Cove from the ribbon or right-clicks one email and chooses
-  **Send to Inbox Cove**, then works in a right-docked Outlook Custom Task Pane.
+- The user opens MailAI from the ribbon or right-clicks one email and chooses
+  **Send to MailAI**, then works in a right-docked Outlook Custom Task Pane.
   Selecting an email is optional, but makes that message available through a
   temporary read handle.
 - Configuration is stored for the current Windows user. The API key is encrypted
@@ -62,6 +62,8 @@ locally linked item. The dedicated host exposes no send operation.
 - Generate text suitable for a reply or a new message.
 - Create and display at most one unsent Outlook draft per chat, then update that
   same item at most once per later user request.
+- Bind reply drafts to the exact temporary handle returned for the searched or
+  selected source message. Never fall back to the latest mailbox item.
 - Never send, schedule, move, delete, mark, categorize, or modify the source email.
 - Always expose only `search_mailbox`, `read_messages`, and `read_thread`.
   Conditionally expose `create_draft` for one locally authorized request or
@@ -70,6 +72,8 @@ locally linked item. The dedicated host exposes no send operation.
   text.
 - Never render model output as HTML or execute it as code. Draft formatting
   accepts only plain text plus exact bold phrases and is HTML-encoded locally.
+  Paired Markdown bold markers are removed and converted to real local bold
+  formatting if a compatible model returns them anyway.
 - Support an OpenAI-compatible `/v1/chat/completions` endpoint.
 - Recommend `qwen3.5-35b-a3b` as the balanced default while preserving editable
   model identifiers and quality-first or speed-first fallbacks.
@@ -84,7 +88,7 @@ locally linked item. The dedicated host exposes no send operation.
 
 ## Brand Commitments
 
-The user-facing product name is Inbox Cove. The stable COM assembly, ProgID,
+The user-facing product name is MailAI. The stable COM assembly, ProgID,
 CLSID, settings path, installer filename, and repository name retain the
 `OutlookLocalAIChat` technical identity so upgrades do not break. The UI should feel like a
 restrained Windows productivity utility, not an AI showcase. Language must be

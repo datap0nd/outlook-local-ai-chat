@@ -1,5 +1,5 @@
 ---
-name: Inbox Cove
+name: MailAI
 description: A restrained Outlook sidebar for chatting with bounded mailbox context and opening user-reviewed drafts.
 colors:
   action-blue: "#005fb8"
@@ -76,13 +76,13 @@ components:
     height: "34px"
 ---
 
-# Design System: Inbox Cove
+# Design System: MailAI
 
 ## Overview
 
 **Creative North Star: "The Guardrailed Desk Tool"**
 
-Inbox Cove is a compact native Outlook sidebar. It should feel native to classic Outlook, not like an AI showcase: familiar system typography, quiet white and cool-gray surfaces, square fields, restrained density, and blue reserved for direct actions.
+MailAI is a compact native Outlook sidebar. It should feel native to classic Outlook, not like an AI showcase: familiar system typography, quiet white and cool-gray surfaces, square fields, restrained density, and blue reserved for direct actions.
 
 The screen tells one ordered story: confirm mailbox scope and the optional selected message, ask a question, observe which bounded read-only context was loaded, then deliberately authorize or manually open one unsent draft in Outlook. The visual hierarchy must keep the read-plus-one-shot-draft boundary obvious. No control may imply that the utility can send mail.
 
@@ -134,7 +134,7 @@ The palette is mostly Windows system color roles, with a fixed Outlook-adjacent 
 
 ### Hierarchy
 
-- **Title** (bold, nominally 12pt): Inbox Cove in the top strip.
+- **Title** (bold, nominally 12pt): MailAI in the top strip.
 - **Body** (regular, nominally 10pt): Transcript turns, composer text, settings fields, and primary reading content.
 - **Label** (bold, nominally 9pt): Speaker names, field labels, and the primary action.
 - **Hint** (regular, no smaller than 8pt): Keyboard guidance, draft disclosure, metadata, and status copy.
@@ -182,7 +182,7 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 ### Mailbox Scope Strip
 
 - **Character:** Quiet context anchor, not a card.
-- **Structure:** Muted full-width band with a bold "Inbox Cove" title, an ellipsized optional `Selected: subject`, and exactly `Model: model_name`.
+- **Structure:** Muted full-width band with a bold "MailAI" title, an ellipsized optional `Selected: subject`, and exactly `Model: model_name`.
 - **State:** When no email is selected, the same region explicitly says mailbox search remains available.
 
 ### Toolbar Links
@@ -196,7 +196,7 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 - **Character:** A spacious, read-only plain-text document.
 - **Structure:** Borderless white surface with vertical scrolling and no automatic URL detection.
 - **Turns:** Speaker names are bold. "You" uses the action color; "Assistant" uses primary text. Context-loading entries are italic secondary text and endpoint errors use explicit diagnostic codes.
-- **Accessibility:** Accessible name is "Inbox Cove conversation"; the description identifies it as a plain-text mailbox conversation and context-loading ledger.
+- **Accessibility:** Accessible name is "MailAI conversation"; the description identifies it as a plain-text mailbox conversation and context-loading ledger.
 
 ### Composer
 

@@ -1,8 +1,8 @@
-#define AppName "Inbox Cove"
+#define AppName "MailAI"
 #ifndef AppVersion
-  #define AppVersion "1.4.0"
+  #define AppVersion "1.4.1"
 #endif
-#define AppPublisher "Inbox Cove contributors"
+#define AppPublisher "MailAI contributors"
 #define AppProgId "OutlookLocalAIChat.AddIn"
 #define AppClsid "{{0D6E56F9-BE2D-4B94-B5E4-4C2DB0FD13E7}"
 #define PaneProgId "OutlookLocalAIChat.ChatPane"

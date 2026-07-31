@@ -19,6 +19,7 @@ namespace OutlookLocalAIChat.Outlook
                 "subject",
                 "to",
                 "cc",
+                "reply_handle",
                 "bold_phrases"
             };
 
@@ -55,7 +56,7 @@ namespace OutlookLocalAIChat.Outlook
 
         public MailboxToolResult Execute(
             ChatToolCall call,
-            MessageSnapshot selectedMessage,
+            Func<string, MessageSnapshot> resolveMessage,
             OneShotDraftAuthorization authorization,
             bool isOnlyToolCall)
         {
@@ -119,7 +120,7 @@ namespace OutlookLocalAIChat.Outlook
                     call.id,
                     arguments,
                     body,
-                    selectedMessage,
+                    resolveMessage,
                     authorization)
                 : Update(
                     call.id,
@@ -138,7 +139,7 @@ namespace OutlookLocalAIChat.Outlook
             string callId,
             IDictionary<string, object> arguments,
             string body,
-            MessageSnapshot selectedMessage,
+            Func<string, MessageSnapshot> resolveMessage,
             OneShotDraftAuthorization authorization)
         {
             if (_session != null)
@@ -161,15 +162,39 @@ namespace OutlookLocalAIChat.Outlook
                     "Draft kind must be new or reply.");
             }
 
-            if (kind == "reply" &&
-                (selectedMessage == null ||
-                 !selectedMessage.CanReply))
+            var replyHandle = TextBoundary.SingleLine(
+                GetString(arguments, "reply_handle"),
+                64);
+            if (kind == "new" && replyHandle.Length > 0)
             {
                 return Error(
                     callId,
                     authorization,
-                    "DRAFT_REPLY_SOURCE_REQUIRED",
-                    "Select a reply-capable email before authorizing a reply draft.");
+                    "DRAFT_REPLY_HANDLE_NOT_ALLOWED",
+                    "A new-message draft cannot include a reply handle.");
+            }
+
+            MessageSnapshot replySource = null;
+            if (kind == "reply" && replyHandle.Length == 0)
+            {
+                return Error(
+                    callId,
+                    authorization,
+                    "DRAFT_REPLY_HANDLE_REQUIRED",
+                    "A reply draft requires the exact handle returned for the source email.");
+            }
+
+            if (kind == "reply")
+            {
+                replySource = resolveMessage?.Invoke(replyHandle);
+                if (replySource == null || !replySource.CanReply)
+                {
+                    return Error(
+                        callId,
+                        authorization,
+                        "DRAFT_REPLY_HANDLE_UNKNOWN",
+                        "The reply handle is unknown, expired, or not reply-capable.");
+                }
             }
 
             if (authorization == null ||
@@ -192,7 +217,7 @@ namespace OutlookLocalAIChat.Outlook
                     "bold_phrases");
                 _session = kind == "reply"
                     ? drafts.CreateReplyDraft(
-                        selectedMessage,
+                        replySource,
                         body,
                         boldPhrases)
                     : drafts.CreateNewDraft(

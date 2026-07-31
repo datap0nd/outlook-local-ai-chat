@@ -12,6 +12,13 @@ namespace OutlookLocalAIChat.Outlook
             string body,
             IReadOnlyList<string> boldPhrases)
         {
+            return FormatContent(body, boldPhrases).Html;
+        }
+
+        public static SafeDraftContent FormatContent(
+            string body,
+            IReadOnlyList<string> boldPhrases)
+        {
             var text = TextBoundary.PlainText(
                 body,
                 TextBoundary.MaxAssistantCharacters);
@@ -21,7 +28,13 @@ namespace OutlookLocalAIChat.Outlook
                     "A non-empty draft body is required.");
             }
 
+            List<TextRange> markdownRanges;
+            text = NormalizeMarkdownStrong(
+                text,
+                out markdownRanges);
             var ranges = FindBoldRanges(text, boldPhrases);
+            ranges.AddRange(markdownRanges);
+            ranges = MergeRanges(ranges);
             var html = new StringBuilder(text.Length + 128);
             html.Append(
                 "<div style=\"font-family:Calibri,Arial,sans-serif;font-size:11pt;\">");
@@ -41,7 +54,70 @@ namespace OutlookLocalAIChat.Outlook
 
             AppendEncoded(html, text.Substring(position));
             html.Append("</div>");
-            return html.ToString();
+            return new SafeDraftContent(
+                text,
+                html.ToString());
+        }
+
+        private static string NormalizeMarkdownStrong(
+            string text,
+            out List<TextRange> boldRanges)
+        {
+            boldRanges = new List<TextRange>();
+            var normalized = new StringBuilder(text.Length);
+            var position = 0;
+            var lineStart = true;
+            while (position < text.Length)
+            {
+                if (lineStart &&
+                    position + 1 < text.Length &&
+                    text[position] == '*' &&
+                    text[position + 1] == ' ')
+                {
+                    normalized.Append("- ");
+                    position += 2;
+                    lineStart = false;
+                    continue;
+                }
+
+                if (position + 3 < text.Length &&
+                    ((text[position] == '*' &&
+                      text[position + 1] == '*') ||
+                     (text[position] == '_' &&
+                      text[position + 1] == '_')))
+                {
+                    var marker = text.Substring(position, 2);
+                    var close = text.IndexOf(
+                        marker,
+                        position + 2,
+                        StringComparison.Ordinal);
+                    if (close > position + 2)
+                    {
+                        var content = text.Substring(
+                            position + 2,
+                            close - position - 2);
+                        var start = normalized.Length;
+                        normalized.Append(content);
+                        boldRanges.Add(
+                            new TextRange(start, content.Length));
+                        lineStart = content.EndsWith(
+                            "\n",
+                            StringComparison.Ordinal) ||
+                            content.EndsWith(
+                                "\r",
+                                StringComparison.Ordinal);
+                        position = close + 2;
+                        continue;
+                    }
+                }
+
+                var value = text[position];
+                normalized.Append(value);
+                lineStart = value == '\n' || value == '\r';
+                position++;
+            }
+
+            return normalized.ToString();
         }
 
         private static List<TextRange> FindBoldRanges(
@@ -85,6 +161,12 @@ namespace OutlookLocalAIChat.Outlook
                 }
             }
 
+            return MergeRanges(candidates);
+        }
+
+        private static List<TextRange> MergeRanges(
+            List<TextRange> candidates)
+        {
             candidates.Sort((left, right) =>
             {
                 var startComparison = left.Start.CompareTo(right.Start);
@@ -132,5 +214,20 @@ namespace OutlookLocalAIChat.Outlook
 
             public int Length { get; }
         }
+    }
+
+    public sealed class SafeDraftContent
+    {
+        internal SafeDraftContent(
+            string plainText,
+            string html)
+        {
+            PlainText = plainText ?? string.Empty;
+            Html = html ?? string.Empty;
+        }
+
+        public string PlainText { get; }
+
+        public string Html { get; }
     }
 }

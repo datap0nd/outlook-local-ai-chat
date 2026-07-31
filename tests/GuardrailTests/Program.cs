@@ -61,6 +61,12 @@ namespace GuardrailTests
                     "Draft authorization creates at most one unsent draft",
                     DraftAuthorizationCreatesOnlyOneDraft);
                 Run(
+                    "Reply draft uses the exact retrieved message handle",
+                    ReplyDraftUsesExactHandle);
+                Run(
+                    "Reply draft rejects missing or fabricated handles",
+                    ReplyDraftRequiresIssuedHandle);
+                Run(
                     "Linked draft updates the same visible Outlook item",
                     LinkedDraftUpdatesSameItem);
                 Run(
@@ -396,9 +402,11 @@ namespace GuardrailTests
                     withPermission.messages[0]).content;
             Assert(
                 json.Contains("\"create_draft\"") &&
+                json.Contains("\"reply_handle\"") &&
                 json.Contains("\"additionalProperties\":false") &&
                 system.Contains("explicitly authorized") &&
-                system.Contains("only tool call"),
+                system.Contains("only tool call") &&
+                system.Contains("exact handle"),
                 "The authorized draft boundary is incomplete.");
 
             var withLinkedDraft = MakeRequest(
@@ -540,6 +548,122 @@ namespace GuardrailTests
                 "One request updated the linked draft more than once.");
         }
 
+        private static void ReplyDraftUsesExactHandle()
+        {
+            var application = new FakeOutlookApplication();
+            var wrong = application.RegisterReplySource(
+                "wrong-entry",
+                "store",
+                "RE: Wrong latest message",
+                "wrong.sender@example.test");
+            var target = application.RegisterReplySource(
+                "target-entry",
+                "store",
+                "RE: Target project update",
+                "target.sender@example.test");
+            var wrongSnapshot = new MessageSnapshot(
+                "wrong-entry",
+                "store",
+                "Wrong latest message",
+                "wrong.sender@example.test",
+                "recipient@example.test",
+                DateTime.UtcNow,
+                "Wrong body");
+            var targetSnapshot = new MessageSnapshot(
+                "target-entry",
+                "store",
+                "Target project update",
+                "target.sender@example.test",
+                "recipient@example.test",
+                DateTime.UtcNow.AddMinutes(-5),
+                "Target body");
+            Func<string, MessageSnapshot> resolver = handle =>
+                handle == "m2"
+                    ? targetSnapshot
+                    : handle == "selected"
+                        ? wrongSnapshot
+                        : null;
+            var authorization =
+                new OneShotDraftAuthorization(true);
+            var host = new DraftToolHost(application);
+
+            var result = host.Execute(
+                DraftCall(
+                    "reply-target",
+                    "{\"kind\":\"reply\"," +
+                    "\"reply_handle\":\"m2\"," +
+                    "\"body\":\"Hello **Target contact**\"}"),
+                resolver,
+                authorization,
+                true);
+
+            Assert(
+                authorization.IsCreated &&
+                result.Content.Contains("\"draft_kind\":\"reply\"") &&
+                target.ReplyCount == 1 &&
+                wrong.ReplyCount == 0 &&
+                application.LastDraft.To ==
+                    "target.sender@example.test" &&
+                application.LastDraft.Subject ==
+                    "RE: Target project update" &&
+                application.LastDraft.HTMLBody.Contains(
+                    "Hello <strong>Target contact</strong>") &&
+                !application.LastDraft.HTMLBody.Contains("**") &&
+                host.ActiveDraft.Body == "Hello Target contact",
+                "The reply was not bound to the exact retrieved handle.");
+        }
+
+        private static void ReplyDraftRequiresIssuedHandle()
+        {
+            var application = new FakeOutlookApplication();
+            var source = application.RegisterReplySource(
+                "target-entry",
+                "store",
+                "RE: Target",
+                "target@example.test");
+            var snapshot = new MessageSnapshot(
+                "target-entry",
+                "store",
+                "Target",
+                "target@example.test",
+                "recipient@example.test",
+                DateTime.UtcNow,
+                "Body");
+            Func<string, MessageSnapshot> resolver = handle =>
+                handle == "selected" ? snapshot : null;
+
+            var missingAuthorization =
+                new OneShotDraftAuthorization(true);
+            var missing = new DraftToolHost(application).Execute(
+                DraftCall(
+                    "reply-missing",
+                    "{\"kind\":\"reply\",\"body\":\"Hello\"}"),
+                resolver,
+                missingAuthorization,
+                true);
+            var unknownAuthorization =
+                new OneShotDraftAuthorization(true);
+            var unknown = new DraftToolHost(application).Execute(
+                DraftCall(
+                    "reply-unknown",
+                    "{\"kind\":\"reply\"," +
+                    "\"reply_handle\":\"fabricated-id\"," +
+                    "\"body\":\"Hello\"}"),
+                resolver,
+                unknownAuthorization,
+                true);
+
+            Assert(
+                missing.Content.Contains(
+                    "DRAFT_REPLY_HANDLE_REQUIRED") &&
+                unknown.Content.Contains(
+                    "DRAFT_REPLY_HANDLE_UNKNOWN") &&
+                !missingAuthorization.IsConsumed &&
+                !unknownAuthorization.IsConsumed &&
+                source.ReplyCount == 0,
+                "A missing or fabricated reply handle reached Outlook.");
+        }
+
         private static void DraftHtmlIsSafe()
         {
             var html = SafeDraftHtml.Format(
@@ -551,6 +675,22 @@ namespace GuardrailTests
                 html.Contains("<br>") &&
                 html.Contains("<strong>Important</strong>"),
                 "Draft HTML did not encode untrusted markup: " + html);
+
+            var markdown = SafeDraftHtml.FormatContent(
+                "Hello **Target contact**\n* Next step\n__Important__",
+                new string[0]);
+            Assert(
+                markdown.PlainText ==
+                    "Hello Target contact\n- Next step\nImportant" &&
+                markdown.Html.Contains(
+                    "Hello <strong>Target contact</strong>") &&
+                markdown.Html.Contains(
+                    "<strong>Important</strong>") &&
+                !markdown.Html.Contains("**") &&
+                !markdown.Html.Contains("__") &&
+                !markdown.Html.Contains("<script>"),
+                "Markdown notation was not converted to safe email formatting: " +
+                markdown.Html);
 
             var application = new FakeOutlookApplication();
             var rejected = new DraftToolHost(application).Execute(
@@ -761,8 +901,8 @@ namespace GuardrailTests
             Assert(
                 xml.Contains("ContextMenuMailItem") &&
                 xml.Contains("OnSendToAi") &&
-                xml.Contains("Send to Inbox Cove") &&
-                xml.Contains("label=\"Inbox Cove\""),
+                xml.Contains("Send to MailAI") &&
+                xml.Contains("label=\"MailAI\""),
                 "The Outlook explorer ribbon XML is incomplete: " + xml);
         }
 
@@ -1001,9 +1141,36 @@ namespace GuardrailTests
 
     public sealed class FakeOutlookApplication
     {
+        private readonly FakeOutlookSession _session =
+            new FakeOutlookSession();
+
         public int CreatedCount { get; private set; }
 
         public FakeMailItem LastDraft { get; private set; }
+
+        public FakeOutlookSession Session
+        {
+            get { return _session; }
+        }
+
+        public FakeReplySource RegisterReplySource(
+            string entryId,
+            string storeId,
+            string replySubject,
+            string replyTo)
+        {
+            var source = new FakeReplySource(
+                this,
+                replySubject,
+                replyTo);
+            _session.Register(entryId, storeId, source);
+            return source;
+        }
+
+        public void RecordReply(FakeMailItem draft)
+        {
+            LastDraft = draft;
+        }
 
         public object CreateItem(int itemType)
         {
@@ -1016,6 +1183,82 @@ namespace GuardrailTests
             CreatedCount++;
             LastDraft = new FakeMailItem();
             return LastDraft;
+        }
+    }
+
+    public sealed class FakeOutlookSession
+    {
+        private readonly Dictionary<string, object> _items =
+            new Dictionary<string, object>(StringComparer.Ordinal);
+
+        public void Register(
+            string entryId,
+            string storeId,
+            object item)
+        {
+            _items[Key(entryId, storeId)] = item;
+        }
+
+        public object GetItemFromID(string entryId)
+        {
+            return GetItemFromID(entryId, string.Empty);
+        }
+
+        public object GetItemFromID(
+            string entryId,
+            string storeId)
+        {
+            object item;
+            if (!_items.TryGetValue(
+                    Key(entryId, storeId),
+                    out item))
+            {
+                throw new InvalidOperationException(
+                    "Unknown fake Outlook item.");
+            }
+
+            return item;
+        }
+
+        private static string Key(
+            string entryId,
+            string storeId)
+        {
+            return (entryId ?? string.Empty) +
+                "\n" +
+                (storeId ?? string.Empty);
+        }
+    }
+
+    public sealed class FakeReplySource
+    {
+        private readonly FakeOutlookApplication _application;
+        private readonly string _replySubject;
+        private readonly string _replyTo;
+
+        public FakeReplySource(
+            FakeOutlookApplication application,
+            string replySubject,
+            string replyTo)
+        {
+            _application = application;
+            _replySubject = replySubject;
+            _replyTo = replyTo;
+        }
+
+        public int ReplyCount { get; private set; }
+
+        public object Reply()
+        {
+            ReplyCount++;
+            var draft = new FakeMailItem
+            {
+                Subject = _replySubject,
+                To = _replyTo,
+                HTMLBody = "<div>Quoted original</div>"
+            };
+            _application.RecordReply(draft);
+            return draft;
         }
     }
 

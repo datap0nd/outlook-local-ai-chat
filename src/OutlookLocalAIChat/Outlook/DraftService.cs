@@ -23,7 +23,7 @@ namespace OutlookLocalAIChat.Outlook
             if (source == null || !source.CanReply)
             {
                 throw new InvalidOperationException(
-                    "Refresh the selected email before creating a reply.");
+                    "The resolved source email is not available for reply.");
             }
 
             object session = null;
@@ -162,7 +162,7 @@ namespace OutlookLocalAIChat.Outlook
             var boundedBody = TextBoundary.PlainText(
                 body,
                 TextBoundary.MaxAssistantCharacters);
-            var html = SafeDraftHtml.Format(
+            var content = SafeDraftHtml.FormatContent(
                 boundedBody,
                 boldPhrases);
             dynamic mail = _mailItem;
@@ -186,11 +186,11 @@ namespace OutlookLocalAIChat.Outlook
 
             mail.HTMLBody = _kind == "reply" &&
                 _quotedHtml.Length > 0
-                ? html + "<br><br>" + _quotedHtml
-                : html;
+                ? content.Html + "<br><br>" + _quotedHtml
+                : content.Html;
             mail.Save();
             mail.Display(false);
-            _body = boundedBody;
+            _body = content.PlainText;
         }
 
         public void Dispose()

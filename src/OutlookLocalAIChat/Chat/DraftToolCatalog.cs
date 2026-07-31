@@ -102,13 +102,18 @@ namespace OutlookLocalAIChat.Chat
             if (includeKind)
             {
                 properties.Add(
+                    "reply_handle",
+                    BoundedString(
+                        "Required when kind is reply. Use the exact opaque handle returned by search_mailbox, read_messages, read_thread, or selected. Omit for a new message. Never invent a handle.",
+                        64));
+                properties.Add(
                     "kind",
                     new Dictionary<string, object>
                     {
                         { "type", "string" },
                         {
                             "description",
-                            "Use reply for the selected email or new for a new message."
+                            "Use reply for an exact email identified by reply_handle, or new for a new message."
                         },
                         { "enum", new[] { "new", "reply" } }
                     });

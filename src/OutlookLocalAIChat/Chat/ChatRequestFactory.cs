@@ -111,7 +111,10 @@ namespace OutlookLocalAIChat.Chat
                     "create or open a draft, only after gathering all needed mailbox " +
                     "context, and as the only tool call in that response. The local " +
                     "host consumes the authorization on the first creation attempt. " +
-                    "Use bold_phrases only for exact phrases in body. After the tool " +
+                    "For a reply, pass the exact handle of the email being answered in " +
+                    "reply_handle. Never substitute the selected or latest email. Never " +
+                    "put Markdown markers in body. Use bold_phrases only for exact phrases " +
+                    "that should be bold. After the tool " +
                     "result, state that the draft is unsent, open, and linked for review.";
             }
 
@@ -120,8 +123,9 @@ namespace OutlookLocalAIChat.Chat
                 return SystemBoundary +
                     " One unsent Outlook draft is linked to this chat. If the user asks " +
                     "to revise or format it, call update_draft with the complete revised " +
-                    "plain-text body as the only tool call in that response. Use " +
-                    "bold_phrases only for exact phrases in body. The local host applies " +
+                    "plain-text body as the only tool call in that response. Never put " +
+                    "Markdown markers in body. Use bold_phrases only for exact phrases " +
+                    "that should be bold. The local host applies " +
                     "safe formatting and can update only that one linked draft. Never " +
                     "claim it was sent.";
             }

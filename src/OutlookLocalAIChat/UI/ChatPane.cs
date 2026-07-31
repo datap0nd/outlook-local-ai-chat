@@ -279,7 +279,7 @@ namespace OutlookLocalAIChat.UI
                 Font.Size + 2F,
                 FontStyle.Bold);
             _scopeTitle.ForeColor = TextPrimary;
-            _scopeTitle.Text = "Inbox Cove";
+            _scopeTitle.Text = "MailAI";
 
             _scopeMeta.AutoEllipsis = true;
             _scopeMeta.Dock = DockStyle.Fill;
@@ -344,7 +344,7 @@ namespace OutlookLocalAIChat.UI
             _transcript.ScrollBars =
                 RichTextBoxScrollBars.Vertical;
             _transcript.AccessibleName =
-                "Inbox Cove conversation";
+                "MailAI conversation";
             _transcript.AccessibleDescription =
                 "Plain-text mailbox conversation and context-loading ledger.";
 
@@ -668,7 +668,7 @@ namespace OutlookLocalAIChat.UI
                     var result = isDraftCall
                         ? _draftTools.Execute(
                             toolCall,
-                            selectedMessage,
+                            mailboxTools.ResolveHandle,
                             draftAuthorization,
                             toolCalls.Count == 1)
                         : mailboxTools.Execute(toolCall);
@@ -893,7 +893,7 @@ namespace OutlookLocalAIChat.UI
 
         private void SetScopeUnavailable(string text)
         {
-            _scopeTitle.Text = "Inbox Cove";
+            _scopeTitle.Text = "MailAI";
             _scopeMeta.Text = text;
         }
 
@@ -901,7 +901,7 @@ namespace OutlookLocalAIChat.UI
         {
             _selectedMessage = message ??
                 throw new ArgumentNullException(nameof(message));
-            _scopeTitle.Text = "Inbox Cove";
+            _scopeTitle.Text = "MailAI";
             var displaySubject = SubjectDisplay.Clean(
                 _selectedMessage.Subject);
             _scopeMeta.Text =

@@ -86,6 +86,17 @@ namespace OutlookLocalAIChat.Outlook
             }
         }
 
+        internal MessageSnapshot ResolveHandle(string handle)
+        {
+            var boundedHandle = TextBoundary.SingleLine(
+                handle,
+                64);
+            MessageSnapshot message;
+            return _handles.TryGetValue(boundedHandle, out message)
+                ? message
+                : null;
+        }
+
         private MailboxToolResult Search(
             string callId,
             IDictionary<string, object> arguments)
