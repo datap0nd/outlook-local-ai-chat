@@ -64,16 +64,37 @@ namespace OutlookLocalAIChat
                 return null;
             }
 
+            var contextMenu = string.Equals(
+                ribbonId,
+                "Microsoft.Outlook.Explorer",
+                StringComparison.Ordinal)
+                ? "<contextMenus>" +
+                  "<contextMenu idMso=\"ContextMenuMailItem\">" +
+                  "<button id=\"OutlookLocalAIChat.SendToAi\" " +
+                  "label=\"Send to Inbox Cove\" imageMso=\"ResearchPane\" " +
+                  "onAction=\"OnSendToAi\"/>" +
+                  "</contextMenu></contextMenus>"
+                : string.Empty;
+
             return
                 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
                 "<customUI xmlns=\"http://schemas.microsoft.com/office/2009/07/customui\">" +
                 "<ribbon><tabs><tab idMso=\"" + tabId + "\">" +
-                "<group id=\"OutlookLocalAIChat.Group\" label=\"AI Chat\">" +
-                "<button id=\"OutlookLocalAIChat.Open\" label=\"Mailbox AI Chat\" " +
+                "<group id=\"OutlookLocalAIChat.Group\" label=\"Inbox Cove\">" +
+                "<button id=\"OutlookLocalAIChat.Open\" label=\"Inbox Cove\" " +
                 "size=\"large\" imageMso=\"ResearchPane\" onAction=\"OnOpenChat\" " +
-                "screentip=\"Open Mailbox AI Chat\" " +
-                "supertip=\"Chat with your mailbox in an Outlook sidebar and open unsent drafts.\"/>" +
-                "</group></tab></tabs></ribbon></customUI>";
+                "screentip=\"Open Inbox Cove\" " +
+                "supertip=\"Chat with your mailbox and refine one unsent Outlook draft.\"/>" +
+                "</group></tab></tabs></ribbon>" +
+                contextMenu +
+                "</customUI>";
+        }
+
+        public void OnSendToAi(object control)
+        {
+            var selection = GetRibbonContext(control);
+            OnOpenChat(control);
+            _chatPane?.UseRibbonSelection(selection);
         }
 
         public void OnOpenChat(object control)
@@ -84,7 +105,7 @@ namespace OutlookLocalAIChat
                 {
                     MessageBox.Show(
                         "Outlook is not ready. Restart Outlook and try again.",
-                        "Outlook Local AI Chat",
+                        "Inbox Cove",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
                     return;
@@ -95,7 +116,7 @@ namespace OutlookLocalAIChat
                     MessageBox.Show(
                         "Outlook has not made the sidebar service available yet. " +
                         "Wait a moment and try again.",
-                        "Outlook Local AI Chat",
+                        "Inbox Cove",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Warning);
                     return;
@@ -103,11 +124,11 @@ namespace OutlookLocalAIChat
 
                 if (_taskPane == null)
                 {
-                    object parentWindow = GetRibbonContext(control);
+                    object parentWindow = GetTaskPaneParent(control);
                     dynamic factory = _ctpFactory;
                     _taskPane = factory.CreateCTP(
                         "OutlookLocalAIChat.ChatPane",
-                        "Mailbox AI Chat",
+                        "Inbox Cove",
                         parentWindow ?? Type.Missing);
 
                     dynamic pane = _taskPane;
@@ -139,7 +160,7 @@ namespace OutlookLocalAIChat
                     DiagnosticDetails.ForException(
                         exception,
                         "SIDEBAR_OPEN_FAILED"),
-                    "Outlook Local AI Chat",
+                    "Inbox Cove",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
             }
@@ -176,6 +197,31 @@ namespace OutlookLocalAIChat
             catch
             {
                 return null;
+            }
+        }
+
+        private object GetTaskPaneParent(object control)
+        {
+            var context = GetRibbonContext(control);
+            try
+            {
+                dynamic window = context;
+                object windowHandle = window.HWND;
+                return windowHandle == null
+                    ? null
+                    : context;
+            }
+            catch
+            {
+                try
+                {
+                    dynamic application = _outlookApplication;
+                    return application.ActiveExplorer();
+                }
+                catch
+                {
+                    return null;
+                }
             }
         }
 

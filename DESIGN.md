@@ -1,5 +1,5 @@
 ---
-name: Outlook Local AI Chat
+name: Inbox Cove
 description: A restrained Outlook sidebar for chatting with bounded mailbox context and opening user-reviewed drafts.
 colors:
   action-blue: "#005fb8"
@@ -76,13 +76,13 @@ components:
     height: "34px"
 ---
 
-# Design System: Outlook Local AI Chat
+# Design System: Inbox Cove
 
 ## Overview
 
 **Creative North Star: "The Guardrailed Desk Tool"**
 
-Outlook Local AI Chat is a compact native Outlook sidebar. It should feel native to classic Outlook, not like an AI showcase: familiar system typography, quiet white and cool-gray surfaces, square fields, restrained density, and blue reserved for direct actions.
+Inbox Cove is a compact native Outlook sidebar. It should feel native to classic Outlook, not like an AI showcase: familiar system typography, quiet white and cool-gray surfaces, square fields, restrained density, and blue reserved for direct actions.
 
 The screen tells one ordered story: confirm mailbox scope and the optional selected message, ask a question, observe which bounded read-only context was loaded, then deliberately authorize or manually open one unsent draft in Outlook. The visual hierarchy must keep the read-plus-one-shot-draft boundary obvious. No control may imply that the utility can send mail.
 
@@ -134,7 +134,7 @@ The palette is mostly Windows system color roles, with a fixed Outlook-adjacent 
 
 ### Hierarchy
 
-- **Title** (bold, nominally 12pt): Mailbox chat scope in the top strip.
+- **Title** (bold, nominally 12pt): Inbox Cove in the top strip.
 - **Body** (regular, nominally 10pt): Transcript turns, composer text, settings fields, and primary reading content.
 - **Label** (bold, nominally 9pt): Speaker names, field labels, and the primary action.
 - **Hint** (regular, no smaller than 8pt): Keyboard guidance, draft disclosure, metadata, and status copy.
@@ -147,11 +147,11 @@ The palette is mostly Windows system color roles, with a fixed Outlook-adjacent 
 
 ## Layout
 
-The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 92 pixels high and includes the active model and draft-authorization boundary, followed by a compact 38-pixel toolbar. The transcript consumes all remaining flexible height. The 146-pixel composer band, 64-pixel draft-action area, and 64-pixel status band remain anchored at the bottom.
+The chat is a single-column, vertically stacked Outlook Custom Task Pane, initially 380 pixels wide with a 300-pixel minimum usable width. The top mailbox-scope strip is 92 pixels high and includes the selected subject and exact active model, followed by a compact 38-pixel toolbar. The transcript consumes all remaining flexible height. The 154-pixel composer band and 64-pixel status band remain anchored at the bottom.
 
 Horizontal content padding is 14 pixels in the sidebar work areas. The toolbar uses 8 pixels, while the modal settings form uses 24 pixels. Vertical rhythm is compact, generally 3 to 10 pixels between related controls. The transcript stays visually open and scrolls vertically instead of becoming a stack of cards.
 
-The composer is a two-column grid: a fluid multiline text field and a fixed action column. The send button fills the message row. A native checkbox directly below the message field authorizes one unsent draft for that request, and a persistent hint states that permission resets after Send. Manual draft actions align to the right beneath a full-width disclosure. Long message subjects, sender metadata, and status text ellipsize rather than breaking the overall frame.
+The composer is a two-column grid: a fluid multiline text field and a fixed action column. The send button fills the message row. Before creation, a native checkbox directly below the message field authorizes one unsent draft for that request. After creation, the checkbox is replaced by a persistent blue text state: "Draft linked. Feedback updates it automatically." Long message subjects and status text ellipsize rather than breaking the frame.
 
 The settings window is a centered modal, 620 by 590 client pixels with a 560 by 570 minimum. Endpoint, editable model selector, and API-key fields stack vertically. The model selector includes a direct recommended-model action and concise tradeoff guidance. An explicit insecure-HTTP checkbox and transport warning follow the credential fields. A visible endpoint check validates authentication, optional model discovery, and a synthetic mailbox tool call before the bottom Save and Cancel actions.
 
@@ -182,7 +182,7 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 ### Mailbox Scope Strip
 
 - **Character:** Quiet context anchor, not a card.
-- **Structure:** Muted full-width band with a bold "Mailbox chat" title, an ellipsized optional selected-message subject, and the active model plus read-only boundary.
+- **Structure:** Muted full-width band with a bold "Inbox Cove" title, an ellipsized optional `Selected: subject`, and exactly `Model: model_name`.
 - **State:** When no email is selected, the same region explicitly says mailbox search remains available.
 
 ### Toolbar Links
@@ -196,13 +196,13 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 - **Character:** A spacious, read-only plain-text document.
 - **Structure:** Borderless white surface with vertical scrolling and no automatic URL detection.
 - **Turns:** Speaker names are bold. "You" uses the action color; "Assistant" uses primary text. Context-loading entries are italic secondary text and endpoint errors use explicit diagnostic codes.
-- **Accessibility:** Accessible name is "Mailbox AI chat conversation"; the description identifies it as a plain-text mailbox conversation and context-loading ledger.
+- **Accessibility:** Accessible name is "Inbox Cove conversation"; the description identifies it as a plain-text mailbox conversation and context-loading ledger.
 
 ### Composer
 
 - **Style:** Multiline square field with a fixed single border, vertical scrolling, and bounded input length.
 - **Authorization:** A native checkbox labeled "Allow one unsent draft for this request" is unchecked by default, keyboard accessible, disabled while busy, and reset immediately after Send. Model output cannot alter it.
-- **Instruction:** A persistent hint says permission resets after Send and that Ctrl+Enter sends.
+- **Instruction:** A persistent hint says Ctrl+Enter sends. The checkbox itself states that creation permission applies to this request.
 - **Focus:** Keep the native Windows focus indication. Do not replace it with color-only styling.
 - **Busy State:** Disable the field while waiting, change "Send to AI" to "Cancel," and restore the user's prompt if the request fails, times out, or is discarded.
 
@@ -213,18 +213,13 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 - **High Contrast:** Replace the fixed fill with the system highlight role.
 - **State:** "Send to AI" starts the bounded request. "Cancel" is the only alternate label and cancels the in-flight request.
 
-### Draft Buttons
+### Linked Draft State
 
-- **Shape:** Square, flat, 34-pixel-high secondary controls with one-pixel system borders.
-- **Labels:** "New draft" and "Reply draft" explicitly describe the result.
-- **State:** Both remain disabled until a complete assistant response exists. Reply draft also requires a reply-capable message selected when the request began. Both disable during an active request and stay disabled after either manual or authorized automatic draft creation for that response.
-- **Boundary:** A click may create, save, and display an unsent Outlook draft. No send, schedule, move, delete, mark, categorize, or source-message modification action belongs in this component family.
-
-### Draft Disclosure
-
-- **Character:** Persistent, quiet, and unambiguous.
-- **Copy:** "One draft maximum per response." The accessible description adds that manual buttons use the entire latest assistant response.
-- **Placement:** Immediately above the draft buttons so users see the content boundary before acting.
+- **Creation:** The local checkbox authorizes one model-requested unsent draft for the next request.
+- **Visible result:** Outlook displays the created item immediately. The chat then links to that exact item.
+- **Revision:** Later drafting feedback updates and redisplays the same item. No second draft button or manual copy action exists.
+- **Formatting:** The model provides plain text and optional exact bold phrases. Local code encodes text and applies the fixed safe markup.
+- **Boundary:** No send, schedule, move, delete, mark, categorize, BCC, arbitrary HTML, or source-message modification action belongs in this component family.
 
 ### Status Band
 
@@ -247,8 +242,8 @@ Controls use square native geometry. Text fields have fixed single borders; flat
 
 - **Do** keep mailbox scope and optional selected-message identity visible before conversation content.
 - **Do** state that Inbox and Sent Items are available only through bounded read tools.
-- **Do** keep draft controls secondary, explicit, and disabled until a valid assistant response exists.
-- **Do** disclose that drafting uses the entire latest assistant response.
+- **Do** keep the one-shot creation checkbox explicit and replace it with visible linked-draft state after creation.
+- **Do** keep `Selected: subject` at the top and hide repeated `RE:`, `FW:`, and `FWD:` display prefixes.
 - **Do** say "unsent draft" and "for your review" in successful draft status text.
 - **Do** inherit Windows system fonts, focus behavior, text scaling, and high-contrast colors.
 - **Do** preserve keyboard operation, including Ctrl+Enter to send, Enter to save settings, and Escape to cancel settings.

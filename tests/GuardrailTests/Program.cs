@@ -61,12 +61,18 @@ namespace GuardrailTests
                     "Draft authorization creates at most one unsent draft",
                     DraftAuthorizationCreatesOnlyOneDraft);
                 Run(
+                    "Linked draft updates the same visible Outlook item",
+                    LinkedDraftUpdatesSameItem);
+                Run(
+                    "Draft HTML is encoded and locally formatted",
+                    DraftHtmlIsSafe);
+                Run(
                     "Mixed draft tool calls do not consume permission",
                     MixedDraftToolCallIsRejected);
                 Run("Request schema exposes bounded tools", RequestSchemaIsBounded);
                 Run("Email is labeled as untrusted data", EmailIsUntrustedData);
                 Run("Conversation history is bounded", HistoryIsBounded);
-                Run("Draft service exposes no send capability", DraftHasNoSend);
+                Run("Draft host exposes no send capability", DraftHasNoSend);
                 Run(
                     "Mailbox host exposes one guarded dispatcher",
                     MailboxHostHasGuardedDispatcher);
@@ -79,6 +85,12 @@ namespace GuardrailTests
                 Run(
                     "Chat pane is a registered COM control",
                     ChatPaneIsComControl);
+                Run(
+                    "Outlook ribbon includes single-message Send to AI",
+                    RibbonIncludesSendToAi);
+                Run(
+                    "Selected subjects hide reply and forward prefixes",
+                    SelectedSubjectIsCleaned);
                 Console.WriteLine("PASS: " + _passed + " guardrail tests");
                 return 0;
             }
@@ -389,15 +401,36 @@ namespace GuardrailTests
                 system.Contains("only tool call"),
                 "The authorized draft boundary is incomplete.");
 
+            var withLinkedDraft = MakeRequest(
+                new List<ChatTurn>(),
+                false,
+                new DraftReference(
+                    "new",
+                    "Draft subject",
+                    "recipient@example.test",
+                    string.Empty,
+                    "Current body"));
+            Assert(
+                withLinkedDraft.tools.Any(tool =>
+                    tool.function.name ==
+                    DraftToolCatalog.UpdateDraft) &&
+                !withLinkedDraft.tools.Any(tool =>
+                    tool.function.name ==
+                    DraftToolCatalog.CreateDraft) &&
+                ((ChatCompletionInputMessage)
+                    withLinkedDraft.messages[2]).content.Contains(
+                        "<linked_draft_reference>"),
+                "A linked draft did not replace create with the bounded update tool.");
+
             var application = new FakeOutlookApplication();
             var unauthorizedHost = new DraftToolHost(
-                application,
-                null,
-                new OneShotDraftAuthorization(false));
+                application);
             var rejected = unauthorizedHost.Execute(
                 DraftCall(
                     "unauthorized",
                     "{\"kind\":\"new\",\"body\":\"Blocked\"}"),
+                null,
+                new OneShotDraftAuthorization(false),
                 true);
             Assert(
                 rejected.Content.Contains(
@@ -412,9 +445,7 @@ namespace GuardrailTests
             var authorization =
                 new OneShotDraftAuthorization(true);
             var host = new DraftToolHost(
-                application,
-                null,
-                authorization);
+                application);
 
             var first = host.Execute(
                 DraftCall(
@@ -423,11 +454,15 @@ namespace GuardrailTests
                     "\"body\":\"Hello\"," +
                     "\"subject\":\"Subject\\nInjected\"," +
                     "\"to\":\"one@example.test\\ntwo@example.test\"}"),
+                null,
+                authorization,
                 true);
             var second = host.Execute(
                 DraftCall(
                     "draft-2",
                     "{\"kind\":\"new\",\"body\":\"Second\"}"),
+                null,
+                new OneShotDraftAuthorization(true),
                 true);
 
             Assert(
@@ -438,18 +473,99 @@ namespace GuardrailTests
             Assert(
                 first.Content.Contains("\"sent\":false") &&
                 second.Content.Contains(
-                    "DRAFT_PERMISSION_NOT_AVAILABLE"),
+                    "DRAFT_ALREADY_LINKED"),
                 "The one-shot result contract is incomplete.");
             Assert(
                 application.LastDraft.Subject ==
                     "Subject Injected" &&
                 application.LastDraft.To ==
                     "one@example.test two@example.test" &&
-                application.LastDraft.Body == "Hello" &&
+                application.LastDraft.HTMLBody.Contains("Hello") &&
                 application.LastDraft.Saved &&
                 application.LastDraft.Displayed &&
                 !application.LastDraft.DisplayModal,
                 "The unsent draft fields or lifecycle are wrong.");
+        }
+
+        private static void LinkedDraftUpdatesSameItem()
+        {
+            var application = new FakeOutlookApplication();
+            var host = new DraftToolHost(application);
+            var createAuthorization =
+                new OneShotDraftAuthorization(true);
+            host.Execute(
+                DraftCall(
+                    "draft-create",
+                    "{\"kind\":\"new\",\"body\":\"First version\"}"),
+                null,
+                createAuthorization,
+                true);
+
+            var original = application.LastDraft;
+            var updateAuthorization =
+                new OneShotDraftAuthorization(false, true);
+            var updated = host.Execute(
+                DraftCall(
+                    "draft-update",
+                    "{\"body\":\"Final section\"," +
+                    "\"bold_phrases\":[\"Final\"]}",
+                    DraftToolCatalog.UpdateDraft),
+                null,
+                updateAuthorization,
+                true);
+
+            Assert(
+                updateAuthorization.IsUpdated &&
+                application.CreatedCount == 1 &&
+                ReferenceEquals(original, application.LastDraft) &&
+                application.LastDraft.HTMLBody.Contains(
+                    "<strong>Final</strong> section") &&
+                application.LastDraft.SaveCount == 2 &&
+                application.LastDraft.DisplayCount == 2 &&
+                updated.Content.Contains("\"action\":\"updated\""),
+                "The live update did not mutate and redisplay the same draft.");
+
+            var secondUpdate = host.Execute(
+                DraftCall(
+                    "draft-update-2",
+                    "{\"body\":\"Should not apply\"}",
+                    DraftToolCatalog.UpdateDraft),
+                null,
+                updateAuthorization,
+                true);
+            Assert(
+                secondUpdate.Content.Contains(
+                    "DRAFT_UPDATE_NOT_AVAILABLE") &&
+                application.LastDraft.SaveCount == 2,
+                "One request updated the linked draft more than once.");
+        }
+
+        private static void DraftHtmlIsSafe()
+        {
+            var html = SafeDraftHtml.Format(
+                "Hello <script>alert('x')</script>\nImportant",
+                new[] { "Important" });
+            Assert(
+                !html.Contains("<script>") &&
+                html.Contains("&lt;script&gt;") &&
+                html.Contains("<br>") &&
+                html.Contains("<strong>Important</strong>"),
+                "Draft HTML did not encode untrusted markup: " + html);
+
+            var application = new FakeOutlookApplication();
+            var rejected = new DraftToolHost(application).Execute(
+                DraftCall(
+                    "html-injection",
+                    "{\"kind\":\"new\",\"body\":\"Safe\"," +
+                    "\"html\":\"<img src=x>\"}"),
+                null,
+                new OneShotDraftAuthorization(true),
+                true);
+            Assert(
+                rejected.Content.Contains(
+                    "DRAFT_ARGUMENTS_INVALID") &&
+                application.CreatedCount == 0,
+                "Arbitrary model HTML reached the Outlook draft path.");
         }
 
         private static void MixedDraftToolCallIsRejected()
@@ -458,13 +574,13 @@ namespace GuardrailTests
             var authorization =
                 new OneShotDraftAuthorization(true);
             var host = new DraftToolHost(
-                application,
-                null,
-                authorization);
+                application);
             var result = host.Execute(
                 DraftCall(
                     "mixed",
                     "{\"kind\":\"new\",\"body\":\"Hello\"}"),
+                null,
+                authorization,
                 false);
 
             Assert(
@@ -477,7 +593,8 @@ namespace GuardrailTests
 
         private static ChatToolCall DraftCall(
             string id,
-            string arguments)
+            string arguments,
+            string name = DraftToolCatalog.CreateDraft)
         {
             return new ChatToolCall
             {
@@ -485,7 +602,7 @@ namespace GuardrailTests
                 type = "function",
                 function = new ChatToolCallFunction
                 {
-                    name = DraftToolCatalog.CreateDraft,
+                    name = name,
                     arguments = arguments
                 }
             };
@@ -539,16 +656,17 @@ namespace GuardrailTests
 
         private static void DraftHasNoSend()
         {
-            var methods = typeof(DraftService)
+            var methods = typeof(DraftToolHost)
                 .GetMethods(BindingFlags.Instance | BindingFlags.Public)
-                .Where(method => method.DeclaringType == typeof(DraftService))
+                .Where(method => method.DeclaringType == typeof(DraftToolHost))
                 .Select(method => method.Name)
                 .ToArray();
             Assert(
-                methods.Length == 2 &&
-                methods.Contains("CreateReplyDraft") &&
-                methods.Contains("CreateNewDraft"),
-                "Draft service public capabilities changed: " +
+                !methods.Any(name =>
+                    name.IndexOf("Send", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    name.IndexOf("Delete", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    name.IndexOf("Move", StringComparison.OrdinalIgnoreCase) >= 0),
+                "Draft host exposes a forbidden capability: " +
                 string.Join(", ", methods));
         }
 
@@ -578,8 +696,9 @@ namespace GuardrailTests
                 .Select(method => method.Name)
                 .ToArray();
             Assert(
-                methods.Length == 1 &&
-                methods[0] == "Execute",
+                methods.Contains("Execute") &&
+                methods.Contains("Dispose") &&
+                !methods.Contains("Send"),
                 "Draft tool host public capabilities changed: " +
                 string.Join(", ", methods));
         }
@@ -635,6 +754,28 @@ namespace GuardrailTests
                 "Unexpected ChatPane CLSID.");
         }
 
+        private static void RibbonIncludesSendToAi()
+        {
+            var xml = new AddIn().GetCustomUI(
+                "Microsoft.Outlook.Explorer");
+            Assert(
+                xml.Contains("ContextMenuMailItem") &&
+                xml.Contains("OnSendToAi") &&
+                xml.Contains("Send to Inbox Cove") &&
+                xml.Contains("label=\"Inbox Cove\""),
+                "The Outlook explorer ribbon XML is incomplete: " + xml);
+        }
+
+        private static void SelectedSubjectIsCleaned()
+        {
+            Assert(
+                SubjectDisplay.Clean(" RE: FW: Fwd: Quarterly plan ") ==
+                    "Quarterly plan" &&
+                SubjectDisplay.Clean("Project update") ==
+                    "Project update",
+                "Selected subject prefixes were not removed safely.");
+        }
+
         private static void AssertDual(Type interfaceType)
         {
             var attribute = interfaceType
@@ -671,7 +812,8 @@ namespace GuardrailTests
 
         private static ChatCompletionRequest MakeRequest(
             IReadOnlyList<ChatTurn> history,
-            bool allowOneDraft = false)
+            bool allowOneDraft = false,
+            DraftReference activeDraft = null)
         {
             return ChatRequestFactory.Create(
                 "local-model",
@@ -685,7 +827,8 @@ namespace GuardrailTests
                     "Message body"),
                 history,
                 "Help me reply.",
-                allowOneDraft);
+                allowOneDraft,
+                activeDraft);
         }
 
         private static void Assert(bool condition, string message)
@@ -878,13 +1021,21 @@ namespace GuardrailTests
 
     public sealed class FakeMailItem
     {
+        public FakeMailItem()
+        {
+            Subject = string.Empty;
+            To = string.Empty;
+            CC = string.Empty;
+            HTMLBody = string.Empty;
+        }
+
         public string Subject { get; set; }
 
         public string To { get; set; }
 
         public string CC { get; set; }
 
-        public string Body { get; set; }
+        public string HTMLBody { get; set; }
 
         public bool Saved { get; private set; }
 
@@ -892,15 +1043,21 @@ namespace GuardrailTests
 
         public bool DisplayModal { get; private set; }
 
+        public int SaveCount { get; private set; }
+
+        public int DisplayCount { get; private set; }
+
         public void Save()
         {
             Saved = true;
+            SaveCount++;
         }
 
         public void Display(bool modal)
         {
             Displayed = true;
             DisplayModal = modal;
+            DisplayCount++;
         }
     }
 }

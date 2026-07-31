@@ -5,76 +5,30 @@ namespace OutlookLocalAIChat.Chat
     public static class DraftToolCatalog
     {
         public const string CreateDraft = "create_draft";
+        public const string UpdateDraft = "update_draft";
 
         public static ChatToolDefinition CreateDefinition()
         {
-            return new ChatToolDefinition
-            {
-                type = "function",
-                function = new ChatToolFunctionDefinition
-                {
-                    name = CreateDraft,
-                    description =
-                        "Create, save, and display exactly one unsent Outlook draft. " +
-                        "This tool is available only after explicit one-request user " +
-                        "authorization. It must be the only tool call in its response " +
-                        "and can never send email.",
-                    parameters = new Dictionary<string, object>
-                    {
-                        { "type", "object" },
-                        {
-                            "properties",
-                            new Dictionary<string, object>
-                            {
-                                {
-                                    "kind",
-                                    new Dictionary<string, object>
-                                    {
-                                        { "type", "string" },
-                                        {
-                                            "description",
-                                            "Use reply for the selected email or new for a new message."
-                                        },
-                                        {
-                                            "enum",
-                                            new[] { "new", "reply" }
-                                        }
-                                    }
-                                },
-                                {
-                                    "body",
-                                    BoundedString(
-                                        "Plain-text draft body. Do not include commentary outside the draft.",
-                                        12000)
-                                },
-                                {
-                                    "subject",
-                                    BoundedString(
-                                        "Optional subject for a new draft. Ignored for replies.",
-                                        255)
-                                },
-                                {
-                                    "to",
-                                    BoundedString(
-                                        "Optional semicolon-separated recipients for a new draft. Ignored for replies.",
-                                        2000)
-                                },
-                                {
-                                    "cc",
-                                    BoundedString(
-                                        "Optional semicolon-separated CC recipients for a new draft. Ignored for replies.",
-                                        2000)
-                                }
-                            }
-                        },
-                        {
-                            "required",
-                            new[] { "kind", "body" }
-                        },
-                        { "additionalProperties", false }
-                    }
-                }
-            };
+            return Definition(
+                CreateDraft,
+                "Create, save, and display exactly one unsent Outlook draft. " +
+                "This tool is available only after explicit one-request user " +
+                "authorization and cannot send email.",
+                true);
+        }
+
+        public static ChatToolDefinition UpdateDefinition()
+        {
+            return Definition(
+                UpdateDraft,
+                "Update and redisplay the single unsent Outlook draft already linked " +
+                "to this chat. This cannot create another draft or send email.",
+                false);
+        }
+
+        public static bool IsDraftTool(string name)
+        {
+            return IsCreateDraft(name) || IsUpdateDraft(name);
         }
 
         public static bool IsCreateDraft(string name)
@@ -83,6 +37,105 @@ namespace OutlookLocalAIChat.Chat
                 CreateDraft,
                 name,
                 System.StringComparison.Ordinal);
+        }
+
+        public static bool IsUpdateDraft(string name)
+        {
+            return string.Equals(
+                UpdateDraft,
+                name,
+                System.StringComparison.Ordinal);
+        }
+
+        private static ChatToolDefinition Definition(
+            string name,
+            string description,
+            bool includeKind)
+        {
+            var properties = new Dictionary<string, object>
+            {
+                {
+                    "body",
+                    BoundedString(
+                        "Complete plain-text draft body. Do not include commentary outside the draft.",
+                        12000)
+                },
+                {
+                    "subject",
+                    BoundedString(
+                        "Optional subject. Omit it to preserve the current subject during an update.",
+                        255)
+                },
+                {
+                    "to",
+                    BoundedString(
+                        "Optional semicolon-separated recipients. Omit it to preserve current recipients during an update.",
+                        2000)
+                },
+                {
+                    "cc",
+                    BoundedString(
+                        "Optional semicolon-separated CC recipients. Omit it to preserve current recipients during an update.",
+                        2000)
+                },
+                {
+                    "bold_phrases",
+                    new Dictionary<string, object>
+                    {
+                        { "type", "array" },
+                        {
+                            "description",
+                            "Optional exact phrases from body to bold. Formatting is applied by the local host."
+                        },
+                        { "maxItems", 12 },
+                        { "uniqueItems", true },
+                        {
+                            "items",
+                            BoundedString(
+                                "Exact body phrase to bold.",
+                                200)
+                        }
+                    }
+                }
+            };
+
+            if (includeKind)
+            {
+                properties.Add(
+                    "kind",
+                    new Dictionary<string, object>
+                    {
+                        { "type", "string" },
+                        {
+                            "description",
+                            "Use reply for the selected email or new for a new message."
+                        },
+                        { "enum", new[] { "new", "reply" } }
+                    });
+            }
+
+            return new ChatToolDefinition
+            {
+                type = "function",
+                function = new ChatToolFunctionDefinition
+                {
+                    name = name,
+                    description = description +
+                        " It must be the only tool call in its response.",
+                    parameters = new Dictionary<string, object>
+                    {
+                        { "type", "object" },
+                        { "properties", properties },
+                        {
+                            "required",
+                            includeKind
+                                ? new[] { "kind", "body" }
+                                : new[] { "body" }
+                        },
+                        { "additionalProperties", false }
+                    }
+                }
+            };
         }
 
         private static Dictionary<string, object> BoundedString(

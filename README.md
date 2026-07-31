@@ -1,9 +1,10 @@
-# Outlook Local AI Chat
+# Inbox Cove
 
 A Windows-only AI chat add-in for classic Outlook in Microsoft Office
 Professional Plus 2021. It installs locally, opens as a native Outlook sidebar,
 and lets an OpenAI-compatible model request bounded read-only context from the
-local Inbox and Sent Items. It opens unsent drafts for human review.
+local Inbox and Sent Items. It opens and safely revises one linked unsent draft
+for human review.
 
 It does not use Microsoft 365 add-in deployment, Microsoft Graph, Entra ID, or
 an external Outlook MCP server.
@@ -15,7 +16,7 @@ an external Outlook MCP server.
    [OutlookLocalAIChatSetup.exe](https://github.com/datap0nd/outlook-local-ai-chat/releases/latest/download/OutlookLocalAIChatSetup.exe).
 3. Run the installer for your Windows account.
 4. Start classic Outlook.
-5. Choose **AI Chat > Mailbox AI Chat** on the ribbon.
+5. Choose **Inbox Cove > Inbox Cove** on the ribbon.
 6. Open **Settings** and enter:
    - the OpenAI-compatible endpoint or base URL;
    - the model name, with `qwen3.5-35b-a3b` recommended;
@@ -62,7 +63,10 @@ email during the check.
 
 ## Use
 
-1. Open **Mailbox AI Chat**. The chat appears as a sidebar inside Outlook.
+1. Open **Inbox Cove**. The chat appears as a sidebar inside Outlook.
+   You can also right-click one email and choose **Send to Inbox Cove**. The
+   sidebar opens with `Selected: subject` at the top. Common `RE:`, `FW:`, and
+   `FWD:` prefixes are hidden in that display.
 2. Ask a mailbox question, such as "What did I agree to send this week?"
 3. The model can search Inbox and Sent Items, inspect selected results, and load
    a conversation thread when needed.
@@ -71,8 +75,9 @@ email during the check.
    request**, then ask it to create a new or reply draft.
 6. The permission exists only for that request and is consumed by the first
    creation attempt. The draft opens unsent in Outlook.
-7. Alternatively, use **Reply draft** or **New draft** after a response. Those
-   buttons are also limited to one draft for that response.
+7. The same Outlook draft stays linked to that chat. Follow-up instructions such
+   as "make it shorter" or "bold the deadline" update and redisplay that exact
+   unsent item. No second draft is created.
 8. Review, edit, address, and send the message using Outlook's normal editor.
 
 Selecting an email is optional for mailbox questions. When one is selected, the
@@ -89,11 +94,13 @@ scoped exception, not a general mutation permission.
   `read_messages`, and `read_thread`.
 - `create_draft` is added only when the local one-shot checkbox was selected.
   Model output, prompts, and email content cannot select that checkbox.
+- Once one draft exists, `create_draft` disappears and only `update_draft` is
+  available. It can mutate only that linked unsent item, once per user request.
 - The draft host requires `create_draft` to be the only tool call in its model
   response, validates strict arguments, and atomically consumes permission
   before creating anything.
-- One request can make at most one creation attempt. After any automatic or
-  manual attempt, the other draft controls for that response are disabled.
+- One chat can link at most one draft. A user request can make at most one draft
+  creation or update attempt.
 - The local hosts reject every other tool name and cap tool calls, tool rounds,
   result counts, message bodies, draft fields, and total returned context.
 - Search results use temporary handles. The model cannot submit arbitrary COM
@@ -102,12 +109,12 @@ scoped exception, not a general mutation permission.
   service.
 - Model output is length-limited plain text displayed in a Windows control. It is
   never evaluated, executed, or rendered as HTML.
-- Only the local one-shot authorization or explicit manual draft buttons can
-  reach `CreateReplyDraft` or `CreateNewDraft`.
-- The model-invoked mailbox host remains read-only. A separate draft host has
-  only the one-shot `create_draft` dispatcher.
-- The separate draft service exposes no send, move, delete, schedule, or mailbox
-  traversal operation.
+- Only the local one-shot authorization can create the linked draft. Later
+  revisions are enabled only while that local linked-draft session exists.
+- The model-invoked mailbox host remains read-only. A separate draft host accepts
+  only the bounded `create_draft` and `update_draft` operations.
+- The draft path exposes no send, move, delete, schedule, BCC, arbitrary HTML,
+  or mailbox traversal operation.
 - Drafts are saved and displayed as unsent Outlook items.
 - CI fails if forbidden Outlook action calls are introduced.
 
@@ -137,8 +144,12 @@ The model may then request:
 When the one-shot checkbox is selected, that request also exposes
 `create_draft`. Its bounded arguments may contain a new-message subject,
 recipients, CC recipients, and body, or a reply body for the selected message.
-The tool can only save and display one unsent Outlook draft. It has no send
-operation, and its permission does not carry into the next request.
+The tool can only save and display one unsent Outlook draft. While that draft is
+linked, later requests expose `update_draft` instead. Each update supplies the
+complete bounded plain-text body and optional exact phrases to bold. The local
+formatter HTML-encodes all text and inserts only fixed `<strong>` and line-break
+markup. Arbitrary model HTML is never accepted. Neither tool has a send
+operation.
 
 Email bodies are sent only when the model requests them through an approved
 read-only tool. The add-in does not index, upload, or transmit the entire
@@ -181,8 +192,11 @@ RESPONSE_INVALID_JSON
 RESPONSE_MISSING_CONTENT
 TOOL_ROUND_LIMIT
 DRAFT_PERMISSION_NOT_AVAILABLE
+DRAFT_UPDATE_NOT_AVAILABLE
+DRAFT_ALREADY_LINKED
 DRAFT_TOOL_MUST_BE_EXCLUSIVE
 DRAFT_CREATION_FAILED
+DRAFT_UPDATE_FAILED
 OUTLOOK_COM_0x800...
 ```
 
@@ -200,7 +214,7 @@ timeout failures before the endpoint returns an HTTP response.
 
 1. Close Outlook.
 2. Open Windows **Installed apps** or **Apps & features**.
-3. Uninstall **Outlook Local AI Chat**.
+3. Uninstall **Inbox Cove**.
 
 Endpoint settings remain under:
 

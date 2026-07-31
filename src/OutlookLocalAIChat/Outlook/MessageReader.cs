@@ -103,6 +103,32 @@ namespace OutlookLocalAIChat.Outlook
             }
         }
 
+        public MessageSnapshot CaptureSelection(object selection)
+        {
+            if (selection == null)
+            {
+                throw new ArgumentNullException(nameof(selection));
+            }
+
+            object item = null;
+            try
+            {
+                dynamic selectedItems = selection;
+                if (selectedItems.Count != 1)
+                {
+                    throw new InvalidOperationException(
+                        "Select exactly one email before using Send to Inbox Cove.");
+                }
+
+                item = selectedItems.Item(1);
+                return CaptureItem(item);
+            }
+            finally
+            {
+                Release(item);
+            }
+        }
+
         internal static MessageSnapshot CaptureItem(object item)
         {
             if (item == null)

@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Web.Script.Serialization;
 using OutlookLocalAIChat.Chat;
 using OutlookLocalAIChat.Security;
@@ -7,36 +9,64 @@ using OutlookLocalAIChat.Utilities;
 
 namespace OutlookLocalAIChat.Outlook
 {
-    public sealed class DraftToolHost
+    public sealed class DraftToolHost : IDisposable
     {
+        private static readonly HashSet<string> CreateArguments =
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "kind",
+                "body",
+                "subject",
+                "to",
+                "cc",
+                "bold_phrases"
+            };
+
+        private static readonly HashSet<string> UpdateArguments =
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "body",
+                "subject",
+                "to",
+                "cc",
+                "bold_phrases"
+            };
+
         private readonly object _outlookApplication;
-        private readonly MessageSnapshot _selectedMessage;
-        private readonly OneShotDraftAuthorization _authorization;
         private readonly JavaScriptSerializer _serializer =
             new JavaScriptSerializer();
+        private DraftSession _session;
 
-        public DraftToolHost(
-            object outlookApplication,
-            MessageSnapshot selectedMessage,
-            OneShotDraftAuthorization authorization)
+        public DraftToolHost(object outlookApplication)
         {
-            _outlookApplication = outlookApplication;
-            _selectedMessage = selectedMessage;
-            _authorization = authorization ??
-                throw new ArgumentNullException(nameof(authorization));
+            _outlookApplication = outlookApplication ??
+                throw new ArgumentNullException(nameof(outlookApplication));
+        }
+
+        public bool HasActiveDraft
+        {
+            get { return _session != null; }
+        }
+
+        public DraftReference ActiveDraft
+        {
+            get { return _session?.Reference; }
         }
 
         public MailboxToolResult Execute(
             ChatToolCall call,
+            MessageSnapshot selectedMessage,
+            OneShotDraftAuthorization authorization,
             bool isOnlyToolCall)
         {
+            var name = call?.function?.name;
             if (call?.function == null ||
                 string.IsNullOrWhiteSpace(call.id) ||
-                !DraftToolCatalog.IsCreateDraft(
-                    call.function.name))
+                !DraftToolCatalog.IsDraftTool(name))
             {
                 return Error(
                     call?.id,
+                    authorization,
                     "DRAFT_TOOL_CALL_INVALID",
                     "The model returned an invalid draft tool call.");
             }
@@ -45,8 +75,9 @@ namespace OutlookLocalAIChat.Outlook
             {
                 return Error(
                     call.id,
+                    authorization,
                     "DRAFT_TOOL_MUST_BE_EXCLUSIVE",
-                    "create_draft must be the only tool call in its response.");
+                    name + " must be the only tool call in its response.");
             }
 
             IDictionary<string, object> arguments;
@@ -54,89 +85,191 @@ namespace OutlookLocalAIChat.Outlook
             {
                 arguments = ParseArguments(
                     call.function.arguments);
+                RequireAllowedArguments(
+                    arguments,
+                    DraftToolCatalog.IsCreateDraft(name)
+                        ? CreateArguments
+                        : UpdateArguments);
             }
             catch (Exception exception)
             {
                 return Error(
                     call.id,
-                    "DRAFT_ARGUMENTS_INVALID_JSON",
+                    authorization,
+                    "DRAFT_ARGUMENTS_INVALID",
                     DiagnosticDetails.ForException(
                         exception,
-                        "DRAFT_ARGUMENTS_INVALID_JSON"));
+                        "DRAFT_ARGUMENTS_INVALID"));
             }
 
-            var kind = GetString(arguments, "kind")
-                .ToLowerInvariant();
             var body = TextBoundary.PlainText(
                 GetString(arguments, "body"),
                 TextBoundary.MaxAssistantCharacters);
-            if (kind != "new" && kind != "reply")
-            {
-                return Error(
-                    call.id,
-                    "DRAFT_KIND_INVALID",
-                    "Draft kind must be new or reply.");
-            }
-
             if (body.Length == 0)
             {
                 return Error(
                     call.id,
+                    authorization,
                     "DRAFT_BODY_REQUIRED",
                     "A non-empty plain-text draft body is required.");
             }
 
-            if (kind == "reply" &&
-                (_selectedMessage == null ||
-                 !_selectedMessage.CanReply))
+            return DraftToolCatalog.IsCreateDraft(name)
+                ? Create(
+                    call.id,
+                    arguments,
+                    body,
+                    selectedMessage,
+                    authorization)
+                : Update(
+                    call.id,
+                    arguments,
+                    body,
+                    authorization);
+        }
+
+        public void Dispose()
+        {
+            _session?.Dispose();
+            _session = null;
+        }
+
+        private MailboxToolResult Create(
+            string callId,
+            IDictionary<string, object> arguments,
+            string body,
+            MessageSnapshot selectedMessage,
+            OneShotDraftAuthorization authorization)
+        {
+            if (_session != null)
             {
                 return Error(
-                    call.id,
+                    callId,
+                    authorization,
+                    "DRAFT_ALREADY_LINKED",
+                    "This chat already has one linked Outlook draft.");
+            }
+
+            var kind = GetString(arguments, "kind")
+                .ToLowerInvariant();
+            if (kind != "new" && kind != "reply")
+            {
+                return Error(
+                    callId,
+                    authorization,
+                    "DRAFT_KIND_INVALID",
+                    "Draft kind must be new or reply.");
+            }
+
+            if (kind == "reply" &&
+                (selectedMessage == null ||
+                 !selectedMessage.CanReply))
+            {
+                return Error(
+                    callId,
+                    authorization,
                     "DRAFT_REPLY_SOURCE_REQUIRED",
                     "Select a reply-capable email before authorizing a reply draft.");
             }
 
-            if (!_authorization.TryConsume())
+            if (authorization == null ||
+                !authorization.CanCreate ||
+                !authorization.TryConsume())
             {
                 return Error(
-                    call.id,
+                    callId,
+                    authorization,
                     "DRAFT_PERMISSION_NOT_AVAILABLE",
-                    "No unused one-shot draft permission is available for this request.");
+                    "No unused local draft-creation permission is available for this request.");
             }
 
             try
             {
                 var drafts = new DraftService(
                     _outlookApplication);
-                if (kind == "reply")
-                {
-                    drafts.CreateReplyDraft(
-                        _selectedMessage,
-                        body);
-                }
-                else
-                {
-                    drafts.CreateNewDraft(
+                var boldPhrases = GetStringList(
+                    arguments,
+                    "bold_phrases");
+                _session = kind == "reply"
+                    ? drafts.CreateReplyDraft(
+                        selectedMessage,
                         body,
-                        GetString(arguments, "subject"),
-                        GetString(arguments, "to"),
-                        GetString(arguments, "cc"));
-                }
-
-                _authorization.MarkCreated();
+                        boldPhrases)
+                    : drafts.CreateNewDraft(
+                        body,
+                        boldPhrases,
+                        GetOptionalString(arguments, "subject"),
+                        GetOptionalString(arguments, "to"),
+                        GetOptionalString(arguments, "cc"));
+                authorization.MarkCreated();
                 return Success(
-                    call.id,
+                    callId,
+                    "created",
                     kind);
             }
             catch (Exception exception)
             {
                 Log.Error("DraftTool.CreateDraft", exception);
                 return Error(
-                    call.id,
+                    callId,
+                    authorization,
                     "DRAFT_CREATION_FAILED",
                     DiagnosticDetails.ForException(
                         exception,
                         "DRAFT_CREATION_FAILED"));
+            }
+        }
+
+        private MailboxToolResult Update(
+            string callId,
+            IDictionary<string, object> arguments,
+            string body,
+            OneShotDraftAuthorization authorization)
+        {
+            if (_session == null)
+            {
+                return Error(
+                    callId,
+                    authorization,
+                    "DRAFT_NOT_LINKED",
+                    "There is no linked Outlook draft to update.");
+            }
+
+            if (authorization == null ||
+                !authorization.CanUpdate ||
+                !authorization.TryConsume())
+            {
+                return Error(
+                    callId,
+                    authorization,
+                    "DRAFT_UPDATE_NOT_AVAILABLE",
+                    "No unused local draft-update permission is available for this request.");
+            }
+
+            try
+            {
+                _session.Update(
+                    body,
+                    GetStringList(arguments, "bold_phrases"),
+                    GetOptionalString(arguments, "subject"),
+                    GetOptionalString(arguments, "to"),
+                    GetOptionalString(arguments, "cc"));
+                authorization.MarkUpdated();
+                return Success(
+                    callId,
+                    "updated",
+                    _session.Reference.Kind);
+            }
+            catch (Exception exception)
+            {
+                Log.Error("DraftTool.UpdateDraft", exception);
+                return Error(
+                    callId,
+                    authorization,
+                    "DRAFT_UPDATE_FAILED",
+                    DiagnosticDetails.ForException(
+                        exception,
+                        "DRAFT_UPDATE_FAILED"));
             }
         }
 
@@ -159,6 +292,19 @@ namespace OutlookLocalAIChat.Outlook
             return parsed;
         }
 
+        private static void RequireAllowedArguments(
+            IDictionary<string, object> arguments,
+            ISet<string> allowed)
+        {
+            var unexpected = arguments.Keys
+                .FirstOrDefault(key => !allowed.Contains(key));
+            if (unexpected != null)
+            {
+                throw new InvalidOperationException(
+                    "Unexpected draft argument: " + unexpected);
+            }
+        }
+
         private static string GetString(
             IDictionary<string, object> arguments,
             string name)
@@ -170,8 +316,58 @@ namespace OutlookLocalAIChat.Outlook
                 : string.Empty;
         }
 
+        private static string GetOptionalString(
+            IDictionary<string, object> arguments,
+            string name)
+        {
+            return arguments.ContainsKey(name)
+                ? GetString(arguments, name)
+                : null;
+        }
+
+        private static IReadOnlyList<string> GetStringList(
+            IDictionary<string, object> arguments,
+            string name)
+        {
+            object value;
+            if (!arguments.TryGetValue(name, out value) ||
+                value == null)
+            {
+                return new string[0];
+            }
+
+            var values = value as IEnumerable;
+            if (values == null || value is string)
+            {
+                throw new InvalidOperationException(
+                    name + " must be an array of strings.");
+            }
+
+            var result = new List<string>();
+            foreach (var item in values)
+            {
+                if (!(item is string))
+                {
+                    throw new InvalidOperationException(
+                        name + " must contain only strings.");
+                }
+
+                result.Add(TextBoundary.PlainText(
+                    (string)item,
+                    200));
+                if (result.Count > 12)
+                {
+                    throw new InvalidOperationException(
+                        name + " cannot contain more than 12 phrases.");
+                }
+            }
+
+            return result;
+        }
+
         private MailboxToolResult Success(
             string callId,
+            string action,
             string kind)
         {
             return new MailboxToolResult(
@@ -180,17 +376,19 @@ namespace OutlookLocalAIChat.Outlook
                     new Dictionary<string, object>
                     {
                         { "ok", true },
+                        { "action", action },
                         { "draft_kind", kind },
                         { "sent", false },
-                        { "permission_consumed", true }
+                        { "linked_draft_count", 1 }
                     }),
-                kind == "reply"
-                    ? "One unsent reply draft opened in Outlook."
-                    : "One unsent new-message draft opened in Outlook.");
+                action == "created"
+                    ? "One unsent draft was opened and linked to this chat."
+                    : "The linked unsent draft was updated in Outlook.");
         }
 
         private MailboxToolResult Error(
             string callId,
+            OneShotDraftAuthorization authorization,
             string code,
             string message)
         {
@@ -207,7 +405,8 @@ namespace OutlookLocalAIChat.Outlook
                         },
                         {
                             "permission_consumed",
-                            _authorization.IsConsumed
+                            authorization != null &&
+                            authorization.IsConsumed
                         }
                     }),
                 "[" + code + "] " +

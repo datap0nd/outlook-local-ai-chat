@@ -28,8 +28,8 @@ recent in-memory conversation, and optional selected-message metadata to a
 user-configured OpenAI-compatible endpoint. The model may request bounded
 read-only searches, message bodies, and conversation threads from the primary
 Inbox and Sent Items. After the user explicitly arms one request, the model may
-create one unsent Outlook reply or new-message draft. Manual draft buttons remain
-available as a fallback.
+create one unsent Outlook reply or new-message draft. That visible Outlook item
+then remains linked to the chat so later feedback updates the same draft.
 
 Success means installation is understandable, configuration takes one endpoint,
 model name, and API key, and no model response can invoke an Outlook send action.
@@ -37,17 +37,18 @@ model name, and API key, and no model response can invoke an Outlook send action
 ## Positioning
 
 Model output can invoke only a compile-time allowlist of bounded mailbox read
-tools. A fourth `create_draft` tool appears only after explicit local one-shot
-authorization. Its dedicated host consumes permission before calling a draft
-service that exposes create, save, and display operations but no send operation.
+tools. `create_draft` appears only after explicit local one-shot authorization.
+After creation it is replaced by `update_draft`, which can modify only the one
+locally linked item. The dedicated host exposes no send operation.
 
 ## Operating Context
 
 - Microsoft Office Professional Plus 2021 with classic Outlook on Windows.
 - Per-user local installation is preferred.
-- The user presses an AI Chat ribbon button and works in a right-docked Outlook
-  Custom Task Pane. Selecting an email is optional, but makes that message
-  available through a temporary read handle.
+- The user opens Inbox Cove from the ribbon or right-clicks one email and chooses
+  **Send to Inbox Cove**, then works in a right-docked Outlook Custom Task Pane.
+  Selecting an email is optional, but makes that message available through a
+  temporary read handle.
 - Configuration is stored for the current Windows user. The API key is encrypted
   with Windows Data Protection API.
 - Conversations are kept in memory and disappear when Outlook closes or the user
@@ -59,14 +60,16 @@ service that exposes create, save, and display operations but no send operation.
 - Hold a text conversation about the mailbox, a selected message, or a retrieved
   conversation.
 - Generate text suitable for a reply or a new message.
-- Create and display at most one unsent Outlook draft per explicitly authorized
-  request or latest-response manual draft action.
+- Create and display at most one unsent Outlook draft per chat, then update that
+  same item at most once per later user request.
 - Never send, schedule, move, delete, mark, categorize, or modify the source email.
 - Always expose only `search_mailbox`, `read_messages`, and `read_thread`.
-  Conditionally expose `create_draft` for one locally authorized request.
+  Conditionally expose `create_draft` for one locally authorized request or
+  `update_draft` while one local draft is linked, never both.
 - Reject all other model tool calls and cap calls, rounds, results, and returned
   text.
-- Never render model output as HTML or execute it as code.
+- Never render model output as HTML or execute it as code. Draft formatting
+  accepts only plain text plus exact bold phrases and is HTML-encoded locally.
 - Support an OpenAI-compatible `/v1/chat/completions` endpoint.
 - Recommend `qwen3.5-35b-a3b` as the balanced default while preserving editable
   model identifiers and quality-first or speed-first fallbacks.
@@ -81,7 +84,9 @@ service that exposes create, save, and display operations but no send operation.
 
 ## Brand Commitments
 
-The product name is Outlook Local AI Chat. The interface should feel like a
+The user-facing product name is Inbox Cove. The stable COM assembly, ProgID,
+CLSID, settings path, installer filename, and repository name retain the
+`OutlookLocalAIChat` technical identity so upgrades do not break. The UI should feel like a
 restrained Windows productivity utility, not an AI showcase. Language must be
 direct, calm, and explicit about what data is read and when a draft is created.
 

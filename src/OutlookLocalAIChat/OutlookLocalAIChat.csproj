@@ -60,16 +60,19 @@
     <Compile Include="Configuration\SettingsStore.cs" />
     <Compile Include="Interop\OfficeInterfaces.cs" />
     <Compile Include="Outlook\DraftService.cs" />
+    <Compile Include="Outlook\DraftReference.cs" />
     <Compile Include="Outlook\DraftToolHost.cs" />
     <Compile Include="Outlook\MailboxContextService.cs" />
     <Compile Include="Outlook\MailboxToolHost.cs" />
     <Compile Include="Outlook\MessageReader.cs" />
     <Compile Include="Outlook\MessageSnapshot.cs" />
+    <Compile Include="Outlook\SafeDraftHtml.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Security\TextBoundary.cs" />
     <Compile Include="Security\OneShotDraftAuthorization.cs" />
     <Compile Include="UI\ChatPane.cs" />
     <Compile Include="UI\SettingsWindow.cs" />
+    <Compile Include="UI\SubjectDisplay.cs" />
     <Compile Include="Utilities\DiagnosticDetails.cs" />
     <Compile Include="Utilities\Log.cs" />
   </ItemGroup>

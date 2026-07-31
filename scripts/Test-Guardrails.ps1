@@ -54,9 +54,12 @@ $draftToolNames = @(
         'public const string \w+ = "([^"]+)";'
     ) | ForEach-Object { $_.Groups[1].Value }
 )
-if ($draftToolNames.Count -ne 1 -or
-    $draftToolNames[0] -ne "create_draft") {
-    throw "Draft tool catalog must expose only create_draft."
+$approvedDraftToolNames = @(
+    "create_draft",
+    "update_draft"
+) | Sort-Object
+if (Compare-Object ($draftToolNames | Sort-Object) $approvedDraftToolNames) {
+    throw "Draft tool catalog contains an unexpected capability."
 }
 
 foreach ($capability in @(
@@ -85,9 +88,12 @@ foreach ($capability in @(
 $draftToolHostSource = Get-Content $draftToolHostPath -Raw
 foreach ($requiredBoundary in @(
     "OneShotDraftAuthorization",
-    "_authorization.TryConsume()",
-    "_authorization.MarkCreated()",
+    "authorization.TryConsume()",
+    "authorization.MarkCreated()",
+    "authorization.MarkUpdated()",
     "DRAFT_PERMISSION_NOT_AVAILABLE",
+    "DRAFT_UPDATE_NOT_AVAILABLE",
+    "DRAFT_ALREADY_LINKED",
     "DRAFT_TOOL_MUST_BE_EXCLUSIVE"
 )) {
     if (-not $draftToolHostSource.Contains($requiredBoundary)) {
@@ -96,25 +102,34 @@ foreach ($requiredBoundary in @(
 }
 
 $factorySource = Get-Content $factoryPath -Raw
-if (-not $factorySource.Contains("if (allowOneDraft)") -or
-    -not $factorySource.Contains("DraftToolCatalog.CreateDefinition()")) {
+if (-not $factorySource.Contains("if (allowOneDraft && activeDraft == null)") -or
+    -not $factorySource.Contains("DraftToolCatalog.CreateDefinition()") -or
+    -not $factorySource.Contains("DraftToolCatalog.UpdateDefinition()")) {
     throw "Draft tool exposure is not conditionally authorized."
 }
 
 $chatPaneSource = Get-Content $chatPanePath -Raw
 if (-not $chatPaneSource.Contains("_allowOneDraft.Checked") -or
     -not $chatPaneSource.Contains("_allowOneDraft.Checked = false") -or
-    -not $chatPaneSource.Contains("_draftConsumedForLatestResponse = true")) {
+    -not $chatPaneSource.Contains("hasLinkedDraft") -or
+    -not $chatPaneSource.Contains("UpdateDraftState()")) {
     throw "Sidebar one-shot draft authorization is incomplete."
 }
 
 $draftPath = Join-Path $sourceRoot "Outlook\DraftService.cs"
 $draftSource = Get-Content $draftPath -Raw
-if (-not $draftSource.Contains("replyMail.Save()") -or
-    -not $draftSource.Contains("replyMail.Display(false)") -or
+if (-not $draftSource.Contains("mail.HTMLBody") -or
     -not $draftSource.Contains("mail.Save()") -or
     -not $draftSource.Contains("mail.Display(false)")) {
     throw "Drafts must be saved and displayed for human review."
+}
+
+$safeHtmlPath = Join-Path $sourceRoot "Outlook\SafeDraftHtml.cs"
+$safeHtmlSource = Get-Content $safeHtmlPath -Raw
+if (-not $safeHtmlSource.Contains("WebUtility.HtmlEncode") -or
+    -not $safeHtmlSource.Contains('html.Append("<strong>")') -or
+    $draftCatalogSource.Contains('"html"')) {
+    throw "Draft formatting must remain locally encoded and structurally bounded."
 }
 
 Write-Host "PASS: static guardrail scan"

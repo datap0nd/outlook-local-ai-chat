@@ -1,22 +1,24 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using OutlookLocalAIChat.Security;
 
 namespace OutlookLocalAIChat.Outlook
 {
-    public sealed class DraftService
+    internal sealed class DraftService
     {
         private readonly object _outlookApplication;
 
-        public DraftService(object outlookApplication)
+        internal DraftService(object outlookApplication)
         {
             _outlookApplication = outlookApplication ??
                 throw new ArgumentNullException(nameof(outlookApplication));
         }
 
-        public void CreateReplyDraft(
+        internal DraftSession CreateReplyDraft(
             MessageSnapshot source,
-            string draftText)
+            string body,
+            IReadOnlyList<string> boldPhrases)
         {
             if (source == null || !source.CanReply)
             {
@@ -24,7 +26,6 @@ namespace OutlookLocalAIChat.Outlook
                     "Refresh the selected email before creating a reply.");
             }
 
-            var boundedText = RequireDraftText(draftText);
             object session = null;
             object original = null;
             object reply = null;
@@ -42,12 +43,20 @@ namespace OutlookLocalAIChat.Outlook
                 dynamic originalMail = original;
                 reply = originalMail.Reply();
                 dynamic replyMail = reply;
-                var quotedBody = Convert.ToString(replyMail.Body) ?? string.Empty;
-                replyMail.Body =
-                    boundedText + Environment.NewLine +
-                    Environment.NewLine + quotedBody;
-                replyMail.Save();
-                replyMail.Display(false);
+                var quotedHtml = SafeString(
+                    () => replyMail.HTMLBody);
+                var draft = new DraftSession(
+                    reply,
+                    "reply",
+                    quotedHtml);
+                draft.Update(
+                    body,
+                    boldPhrases,
+                    null,
+                    null,
+                    null);
+                reply = null;
+                return draft;
             }
             finally
             {
@@ -57,54 +66,47 @@ namespace OutlookLocalAIChat.Outlook
             }
         }
 
-        public void CreateNewDraft(
-            string draftText,
-            string subject = null,
-            string to = null,
-            string cc = null)
+        internal DraftSession CreateNewDraft(
+            string body,
+            IReadOnlyList<string> boldPhrases,
+            string subject,
+            string to,
+            string cc)
         {
-            var boundedText = RequireDraftText(draftText);
-            var boundedSubject = TextBoundary.SingleLine(
-                subject,
-                255);
-            var boundedTo = TextBoundary.SingleLine(
-                to,
-                2000);
-            var boundedCc = TextBoundary.SingleLine(
-                cc,
-                2000);
-            object draft = null;
-
+            object draftItem = null;
             try
             {
                 dynamic application = _outlookApplication;
-                draft = application.CreateItem(0);
-                dynamic mail = draft;
-                mail.Subject = boundedSubject;
-                mail.To = boundedTo;
-                mail.CC = boundedCc;
-                mail.Body = boundedText;
-                mail.Save();
-                mail.Display(false);
+                draftItem = application.CreateItem(0);
+                var draft = new DraftSession(
+                    draftItem,
+                    "new",
+                    string.Empty);
+                draft.Update(
+                    body,
+                    boldPhrases,
+                    subject,
+                    to,
+                    cc);
+                draftItem = null;
+                return draft;
             }
             finally
             {
-                Release(draft);
+                Release(draftItem);
             }
         }
 
-        private static string RequireDraftText(string value)
+        private static string SafeString(Func<object> reader)
         {
-            var bounded = TextBoundary.PlainText(
-                value,
-                TextBoundary.MaxAssistantCharacters);
-            if (bounded.Length == 0)
+            try
             {
-                throw new InvalidOperationException(
-                    "Ask the assistant for draft text first.");
+                return Convert.ToString(reader()) ?? string.Empty;
             }
-
-            return bounded;
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         private static void Release(object value)
@@ -112,6 +114,113 @@ namespace OutlookLocalAIChat.Outlook
             if (value != null && Marshal.IsComObject(value))
             {
                 Marshal.ReleaseComObject(value);
+            }
+        }
+    }
+
+    internal sealed class DraftSession : IDisposable
+    {
+        private object _mailItem;
+        private readonly string _kind;
+        private readonly string _quotedHtml;
+        private string _body = string.Empty;
+
+        internal DraftSession(
+            object mailItem,
+            string kind,
+            string quotedHtml)
+        {
+            _mailItem = mailItem ??
+                throw new ArgumentNullException(nameof(mailItem));
+            _kind = kind ?? string.Empty;
+            _quotedHtml = quotedHtml ?? string.Empty;
+        }
+
+        internal DraftReference Reference
+        {
+            get
+            {
+                EnsureAvailable();
+                dynamic mail = _mailItem;
+                return new DraftReference(
+                    _kind,
+                    SafeString(() => mail.Subject),
+                    SafeString(() => mail.To),
+                    SafeString(() => mail.CC),
+                    _body);
+            }
+        }
+
+        internal void Update(
+            string body,
+            IReadOnlyList<string> boldPhrases,
+            string subject,
+            string to,
+            string cc)
+        {
+            EnsureAvailable();
+            var boundedBody = TextBoundary.PlainText(
+                body,
+                TextBoundary.MaxAssistantCharacters);
+            var html = SafeDraftHtml.Format(
+                boundedBody,
+                boldPhrases);
+            dynamic mail = _mailItem;
+
+            if (subject != null)
+            {
+                mail.Subject = TextBoundary.SingleLine(
+                    subject,
+                    255);
+            }
+
+            if (to != null)
+            {
+                mail.To = TextBoundary.SingleLine(to, 2000);
+            }
+
+            if (cc != null)
+            {
+                mail.CC = TextBoundary.SingleLine(cc, 2000);
+            }
+
+            mail.HTMLBody = _kind == "reply" &&
+                _quotedHtml.Length > 0
+                ? html + "<br><br>" + _quotedHtml
+                : html;
+            mail.Save();
+            mail.Display(false);
+            _body = boundedBody;
+        }
+
+        public void Dispose()
+        {
+            var item = _mailItem;
+            _mailItem = null;
+            if (item != null && Marshal.IsComObject(item))
+            {
+                Marshal.ReleaseComObject(item);
+            }
+        }
+
+        private void EnsureAvailable()
+        {
+            if (_mailItem == null)
+            {
+                throw new InvalidOperationException(
+                    "The linked Outlook draft is no longer available.");
+            }
+        }
+
+        private static string SafeString(Func<object> reader)
+        {
+            try
+            {
+                return Convert.ToString(reader()) ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
             }
         }
     }
