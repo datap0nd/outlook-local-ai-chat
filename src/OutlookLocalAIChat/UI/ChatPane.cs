@@ -124,6 +124,7 @@ namespace OutlookLocalAIChat.UI
             LastCreated = this;
             _settings = _settingsStore.Load();
             ContextScale.Apply(_settings.UseGeminiSignIn);
+            _settings.ApplyLimits();
             // Surface silent gateway waits (quota retries) so a slow
             // response is never a mystery.
             _client.GeminiGateway.StatusListener =
@@ -2114,6 +2115,7 @@ namespace OutlookLocalAIChat.UI
                         settingsWindow.SavedSettings;
                     ContextScale.Apply(
                         _settings.UseGeminiSignIn);
+                    _settings.ApplyLimits();
                     RefreshModelPicker();
                     SetStatus(
                         "Settings saved - " + _settings.Model,

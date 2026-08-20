@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 using OutlookLocalAIChat.Security;
 
@@ -41,7 +42,10 @@ namespace OutlookLocalAIChat.Outlook
                         source.StoreId)
                     : outlookSession.GetItemFromID(source.EntryId);
                 dynamic originalMail = original;
-                reply = originalMail.Reply();
+                reply = CreateReply(
+                    application,
+                    originalMail,
+                    source);
                 dynamic replyMail = reply;
                 var quotedHtml = SafeString(
                     () => replyMail.HTMLBody);
@@ -94,6 +98,92 @@ namespace OutlookLocalAIChat.Outlook
             finally
             {
                 Release(draftItem);
+            }
+        }
+
+        // Outlook refuses MailItem.Reply() while a reply to the same
+        // message sits docked inline in the reading pane ("This
+        // method can't be used with an inline response mail item").
+        // In that case the docked inline reply is popped out into
+        // its own window and becomes the linked draft itself, so the
+        // request succeeds instead of failing.
+        private static object CreateReply(
+            dynamic application,
+            dynamic originalMail,
+            MessageSnapshot source)
+        {
+            try
+            {
+                return originalMail.Reply();
+            }
+            catch (System.Runtime.InteropServices
+                .COMException exception)
+            {
+                var takeover = TryTakeOverInlineResponse(
+                    application,
+                    source);
+                if (takeover != null)
+                {
+                    return takeover;
+                }
+
+                throw new InvalidOperationException(
+                    "Outlook is showing an inline reply in the " +
+                    "reading pane, which blocks automated reply " +
+                    "drafts. Pop that reply out into its own " +
+                    "window (or discard it), or turn on 'Open " +
+                    "replies and forwards in a new window' under " +
+                    "File > Options > Mail, then ask again.",
+                    exception);
+            }
+        }
+
+        // Returns the reading-pane inline reply as a normal draft
+        // when one is open for the same conversation: Display() pops
+        // it out into an inspector window, after which it behaves as
+        // any unsent reply draft. Returns null when there is no
+        // matching inline response to take over.
+        private static object TryTakeOverInlineResponse(
+            dynamic application,
+            MessageSnapshot source)
+        {
+            try
+            {
+                dynamic explorer = application.ActiveExplorer();
+                if (explorer == null)
+                {
+                    return null;
+                }
+
+                dynamic inline = explorer.ActiveInlineResponse;
+                if (inline == null)
+                {
+                    return null;
+                }
+
+                var topic = Convert.ToString(
+                    inline.ConversationTopic) ?? string.Empty;
+                var subject = source?.Subject ?? string.Empty;
+                if (topic.Length > 0 &&
+                    subject.Length > 0 &&
+                    subject.IndexOf(
+                        topic,
+                        StringComparison.OrdinalIgnoreCase) < 0 &&
+                    topic.IndexOf(
+                        subject,
+                        StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    // The inline reply belongs to a different
+                    // conversation; leave it alone.
+                    return null;
+                }
+
+                inline.Display();
+                return inline;
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -194,6 +284,23 @@ namespace OutlookLocalAIChat.Outlook
             mail.Save();
             mail.Display(false);
             _body = content.PlainText;
+        }
+
+        // Attaches an existing file the user already has on disk to
+        // the unsent draft. Reading the file for attachment never
+        // modifies it; the draft still only opens for review.
+        internal void AttachFile(string path)
+        {
+            EnsureAvailable();
+            if (string.IsNullOrWhiteSpace(path) ||
+                !File.Exists(path))
+            {
+                return;
+            }
+
+            dynamic mail = _mailItem;
+            mail.Attachments.Add(path);
+            mail.Save();
         }
 
         public void Dispose()

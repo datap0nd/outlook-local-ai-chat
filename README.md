@@ -104,10 +104,10 @@ the tool-call probe allows up to 90 seconds.
    same extractors as email attachments (PDF, Office, text formats), and
    images become vision input with a tray thumbnail. HTML files are read as
    inert text, not rendered. Each file may be up to 25 MB on disk; extracted
-   text is bounded to 20,000 characters per document and 48,000 characters
+   text is bounded to 48,000 characters per document and 120,000 characters
    total. A file that exceeds a cap still appears in the tray as an amber
    warning chip explaining what was kept — oversized files are noted, and
-   over-length text keeps its first 20,000 characters with a truncation
+   over-length text keeps its first 48,000 characters with a truncation
    notice the model can see.
 6. Ask a normal mailbox question. When a working set exists, the model can read
    only those emails. Without one, it may perform one bounded mailbox search
@@ -129,7 +129,7 @@ the tool-call probe allows up to 90 seconds.
    binary Office files get best-effort extraction. Every attachment is
    listed; anything unreadable is noted rather than silently skipped.
    Attachments up to 25 MB are read; extraction is streamed and bounded
-   to 20,000 characters per attachment and 48,000 characters per
+   to 48,000 characters per attachment and 120,000 characters per
    message, with an explicit truncation notice when more content
    remains.
    Small inline images embedded in the body (64 KB or less) are treated
@@ -178,6 +178,22 @@ how strongly drafts follow your voice, and **hard draft rules** (one per
 line) are followed exactly in every draft. Soul, strength, and rules apply
 only to draft creation and revision, and only to wording, greeting,
 cadence, and sign-off. They cannot alter any capability or security rule.
+
+## Limits tab
+
+Settings has a **Limits** tab. **Use recommended limits** stays ticked by
+default and keeps the values this README describes. Untick it to adjust,
+at your own risk: the reading-budget multiplier (email bodies, attachments,
+and documents, up to x8), your message length (up to 16,000 characters),
+answer length (up to 48,000), history turns (up to 24), tool rounds and
+tool calls per round (up to 8 each). Every slider is hard-clamped in code -
+the settings file cannot push a value past those bounds. Raising limits
+sends more text to the model and can overflow a small local model's context
+window. Capability guardrails are not adjustable from here or anywhere
+else: the ten-email working set, one draft per request, and
+never-send/never-save stay fixed. With Gemini sign-in the reading budgets
+already scale x4 automatically; the larger of that and your multiplier
+wins.
 
 ## Hard security boundary
 

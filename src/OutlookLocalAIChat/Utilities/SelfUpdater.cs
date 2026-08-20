@@ -143,15 +143,53 @@ namespace OutlookLocalAIChat.Utilities
                 scriptPath,
                 BuildUpdateScript(),
                 Encoding.ASCII);
+
+            // The script runs through cmd.exe invoked by full path,
+            // never through the .cmd shell association: locked-down
+            // machines can remap or block script associations, which
+            // surfaces as "not a valid application for this OS
+            // platform". /d also skips any cmd AutoRun commands.
+            var comSpec = Environment.GetEnvironmentVariable(
+                "ComSpec");
+            if (string.IsNullOrEmpty(comSpec))
+            {
+                comSpec = Path.Combine(
+                    Environment.GetFolderPath(
+                        Environment.SpecialFolder.System),
+                    "cmd.exe");
+            }
+
             var start = new System.Diagnostics.ProcessStartInfo
             {
-                FileName = scriptPath,
-                Arguments = "\"" + installerPath + "\"",
-                UseShellExecute = true,
+                FileName = comSpec,
+                Arguments = "/d /c \"\"" + scriptPath + "\" \"" +
+                    installerPath + "\"\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
                 WindowStyle =
                     System.Diagnostics.ProcessWindowStyle.Hidden
             };
-            System.Diagnostics.Process.Start(start);
+            try
+            {
+                System.Diagnostics.Process.Start(start);
+            }
+            catch (Exception exception)
+            {
+                Log.Error("UpdateScriptLaunch", exception);
+                // Last resort on machines that block running
+                // anything from the temp folder: open the
+                // downloaded installer itself so the user can click
+                // through it after closing Outlook. Outlook is not
+                // quit on this path.
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = installerPath,
+                        UseShellExecute = true
+                    });
+                return;
+            }
+
             dynamic application = outlookApplication;
             application.Quit();
         }

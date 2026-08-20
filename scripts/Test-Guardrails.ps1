@@ -202,7 +202,7 @@ if (-not $factorySource.Contains("user-approved writing profile") -or
 $externalContextSource = Get-Content $externalContextPath -Raw
 foreach ($requiredExternalBoundary in @(
     "public const int MaxDocuments = 3",
-    "public const int MaxTotalCharacters = 48000",
+    "public const int MaxTotalCharacters = 120000",
     "SupportedExtensions",
     "file.Length > 2 * 1024 * 1024"
 )) {
@@ -243,6 +243,26 @@ if (-not $safeHtmlSource.Contains("WebUtility.HtmlEncode") -or
     -not $safeHtmlSource.Contains('"<hr style=') -or
     $draftCatalogSource.Contains('"html"')) {
     throw "Draft formatting must remain locally encoded and structurally bounded."
+}
+
+# User-adjustable limits stay clamped and never touch capability
+# caps; the pane must push settings limits into the effective
+# values.
+$textBoundarySource = Get-Content (
+    Join-Path $sourceRoot "Security\TextBoundary.cs") -Raw
+foreach ($requiredLimitBoundary in @(
+    "MaxPromptCharacters = 16000",
+    "MaxAssistantCharactersLimit = 48000",
+    "MaxToolRoundsLimit = 8",
+    "MaxUserMultiplier = 8",
+    "if (useRecommended)"
+)) {
+    if (-not $textBoundarySource.Contains($requiredLimitBoundary)) {
+        throw "Limit overrides are missing clamp $requiredLimitBoundary."
+    }
+}
+if (-not $chatPaneSource.Contains("ApplyLimits()")) {
+    throw "The pane does not apply the configured limits."
 }
 
 Write-Host "PASS: static guardrail scan"

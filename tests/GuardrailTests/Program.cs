@@ -208,6 +208,9 @@ namespace GuardrailTests
                 Run(
                     "Self update is official, silent, and restarts Outlook",
                     SelfUpdateIsOfficialAndBounded);
+                Run(
+                    "User limits clamp and default to recommended",
+                    LimitsClampAndDefaultToRecommended);
                 Console.WriteLine("PASS: " + _passed + " guardrail tests");
                 return 0;
             }
@@ -215,6 +218,67 @@ namespace GuardrailTests
             {
                 Console.Error.WriteLine("FAIL: " + exception.Message);
                 return 1;
+            }
+        }
+
+        private static void LimitsClampAndDefaultToRecommended()
+        {
+            try
+            {
+                Assert(
+                    TextBoundary.MaxUserPromptCharacters ==
+                    TextBoundary
+                        .RecommendedUserPromptCharacters &&
+                    TextBoundary.MaxAssistantCharacters ==
+                    TextBoundary.RecommendedAssistantCharacters &&
+                    TextBoundary.MaxToolRounds ==
+                    TextBoundary.RecommendedToolRounds,
+                    "Effective limits must default to the recommended values.");
+
+                var wild = new AppSettings
+                {
+                    UseRecommendedLimits = false,
+                    LimitContextMultiplier = 100,
+                    LimitPromptCharacters = 999999,
+                    LimitAssistantCharacters = 1,
+                    LimitHistoryTurns = 1000,
+                    LimitToolRounds = 100,
+                    LimitToolCallsPerRound = 0
+                };
+                wild.ApplyLimits();
+                Assert(
+                    TextBoundary.MaxUserPromptCharacters ==
+                    LimitOverrides.MaxPromptCharacters &&
+                    TextBoundary.MaxAssistantCharacters ==
+                    LimitOverrides.MinAssistantCharacters &&
+                    TextBoundary.MaxConversationTurns ==
+                    LimitOverrides.MaxHistoryTurns &&
+                    TextBoundary.MaxToolRounds ==
+                    LimitOverrides.MaxToolRoundsLimit &&
+                    TextBoundary.MaxToolCallsPerRound ==
+                    LimitOverrides.MinToolCallsPerRound &&
+                    ContextScale.Scaled(1000) ==
+                    1000 * ContextScale.MaxUserMultiplier,
+                    "Custom limits must clamp to the hard bounds.");
+
+                var recommended = new AppSettings
+                {
+                    UseRecommendedLimits = true,
+                    LimitContextMultiplier = 8,
+                    LimitPromptCharacters = 999999
+                };
+                recommended.ApplyLimits();
+                Assert(
+                    TextBoundary.MaxUserPromptCharacters ==
+                    TextBoundary
+                        .RecommendedUserPromptCharacters &&
+                    ContextScale.Scaled(1000) == 1000,
+                    "Recommended mode must ignore stored custom values.");
+            }
+            finally
+            {
+                new AppSettings().ApplyLimits();
+                ContextScale.Apply(false);
             }
         }
 

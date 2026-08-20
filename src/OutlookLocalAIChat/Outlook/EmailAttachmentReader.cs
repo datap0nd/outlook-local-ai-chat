@@ -64,8 +64,8 @@ namespace OutlookLocalAIChat.Outlook
         // characters, so large files cost read time, not context.
         public const int MaxBytesPerAttachment = 25 * 1024 * 1024;
         public const int MaxImageBytesPerAttachment = 25 * 1024 * 1024;
-        public const int MaxCharactersPerAttachment = 20000;
-        public const int MaxTotalCharacters = 48000;
+        public const int MaxCharactersPerAttachment = 48000;
+        public const int MaxTotalCharacters = 120000;
         // The data URL cap must stay comfortably above the encoded
         // image byte cap (800 KB is ~1.1M base64 characters).
         public const int MaxImageDataUrlCharacters = 2200000;

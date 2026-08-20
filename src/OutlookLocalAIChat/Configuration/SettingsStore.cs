@@ -72,7 +72,33 @@ namespace OutlookLocalAIChat.Configuration
                     SwitchToVisionModelForImages =
                         stored.SwitchToVisionModelForImages,
                     DiscoveredModels = NormalizeDiscoveredModels(
-                        stored.DiscoveredModels)
+                        stored.DiscoveredModels),
+                    // A missing UseCustomLimits (older settings
+                    // files) means recommended limits; missing
+                    // custom values (0) fall back to recommended.
+                    UseRecommendedLimits = !stored.UseCustomLimits,
+                    LimitContextMultiplier = OrDefault(
+                        stored.LimitContextMultiplier,
+                        1),
+                    LimitPromptCharacters = OrDefault(
+                        stored.LimitPromptCharacters,
+                        TextBoundary
+                            .RecommendedUserPromptCharacters),
+                    LimitAssistantCharacters = OrDefault(
+                        stored.LimitAssistantCharacters,
+                        TextBoundary
+                            .RecommendedAssistantCharacters),
+                    LimitHistoryTurns = OrDefault(
+                        stored.LimitHistoryTurns,
+                        TextBoundary
+                            .RecommendedConversationTurns),
+                    LimitToolRounds = OrDefault(
+                        stored.LimitToolRounds,
+                        TextBoundary.RecommendedToolRounds),
+                    LimitToolCallsPerRound = OrDefault(
+                        stored.LimitToolCallsPerRound,
+                        TextBoundary
+                            .RecommendedToolCallsPerRound)
                 };
             }
             catch
@@ -146,7 +172,18 @@ namespace OutlookLocalAIChat.Configuration
                 SwitchToVisionModelForImages =
                     settings.SwitchToVisionModelForImages,
                 DiscoveredModels = NormalizeDiscoveredModels(
-                    settings.DiscoveredModels)
+                    settings.DiscoveredModels),
+                UseCustomLimits = !settings.UseRecommendedLimits,
+                LimitContextMultiplier =
+                    settings.LimitContextMultiplier,
+                LimitPromptCharacters =
+                    settings.LimitPromptCharacters,
+                LimitAssistantCharacters =
+                    settings.LimitAssistantCharacters,
+                LimitHistoryTurns = settings.LimitHistoryTurns,
+                LimitToolRounds = settings.LimitToolRounds,
+                LimitToolCallsPerRound =
+                    settings.LimitToolCallsPerRound
             };
 
             File.WriteAllText(
@@ -218,6 +255,25 @@ namespace OutlookLocalAIChat.Configuration
             public bool SwitchToVisionModelForImages { get; set; }
 
             public List<string> DiscoveredModels { get; set; }
+
+            public bool UseCustomLimits { get; set; }
+
+            public int LimitContextMultiplier { get; set; }
+
+            public int LimitPromptCharacters { get; set; }
+
+            public int LimitAssistantCharacters { get; set; }
+
+            public int LimitHistoryTurns { get; set; }
+
+            public int LimitToolRounds { get; set; }
+
+            public int LimitToolCallsPerRound { get; set; }
+        }
+
+        private static int OrDefault(int value, int fallback)
+        {
+            return value > 0 ? value : fallback;
         }
     }
 }
